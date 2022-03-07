@@ -12,5 +12,5 @@ Same as by Saitek Cyborg Evo Force, only DLL has different name saiQFF12.dll. So
 # Tested 
 - Game Device control panel
 - x360ce
-- DCS (need to remove joystick from blacklist by renaming device or patch Input.dll)
+- DCS A-10C (need to remove joystick from blacklist by renaming device or patch Input.dll)
 
