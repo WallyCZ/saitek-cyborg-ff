@@ -1,5 +1,7 @@
 ;this is only pseudocode for documenting all changes made
 
+SECTION .text
+
 overwrite_0x10001303:
                 call    patch_1303
 
