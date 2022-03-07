@@ -1,28 +1,28 @@
 ;this is only pseudocode for documenting all changes made
 
-0x10001303:
+overwrite_0x10001303:
                 call    patch_1303
 
-0x100013A0:
+overwrite_0x100013A0:
                 call    patch_13A0
 
-0x10001402:
+overwrite_0x10001402:
                 nop
                 nop
 
-0x1000140C:
+overwrite_0x1000140C:
                 jmp     patch_1402
 
-0x10001426:
+overwrite_0x10001426:
                 call    patch_1426
                 nop
                 nop
 
-0x10003156:
+overwrite_0x10003156:
                 call    patch_3156
                 nop
 
-0x10003244:
+overwrite_0x10003244:
                 call    patch_3244
                 nop
 
