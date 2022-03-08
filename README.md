@@ -9,5 +9,5 @@ Download this repository (for example via [this](https://github.com/WallyCZ/sait
 # Tested 
 - Game Device control panel
 - x360ce
-- DCS A-10C (need to remove joystick from blacklist by renaming device - use saitek_evo_rename.reg)
+- DCS A-10C (need to remove joystick from blacklist by renaming device - answer yes when Install.ps1 asks for renaming device)
 
