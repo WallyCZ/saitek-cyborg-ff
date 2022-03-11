@@ -32,6 +32,7 @@ SECTION .patch       ; patch section
 
 patch_1303:
                 pushfq
+                mov     rsi, rcx
                 shr     rsi, 20h
                 shl     rsi, 20h
                 or      rsi, rdx
