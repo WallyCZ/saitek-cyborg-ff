@@ -1,3 +1,10 @@
+If([IntPtr]::Size -eq 4)
+{
+    Write-Host "Script is not running as 64bit!!"
+    Exit
+}
+
+
 $ver = $host | select version
 if ($ver.Version.Major -gt 1)  {$Host.Runspace.ThreadOptions = "ReuseThread"}
 
