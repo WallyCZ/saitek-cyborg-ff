@@ -1,4 +1,4 @@
-If([IntPtr]::Size -eq 4)
+If([IntPtr]::Size -ne 8)
 {
     Write-Host "Script is not running as 64bit!!"
     Exit
