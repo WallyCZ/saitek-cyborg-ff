@@ -12,4 +12,4 @@ Download this repository (for example via [this](https://github.com/WallyCZ/sait
 - DCS A-10C (need to remove joystick from blacklist by renaming device - answer yes when Install.ps1 asks for renaming device)
 
 # How it works
-All (hopefully) places before this pointer is used were patched, so the lost higher part of the pointer is taken of some similar local pointer, which is not broken.
+All (hopefully) places before this pointer is used were patched, so the lost higher part of the pointer is taken from some another local pointer, which is not broken.
