@@ -45,7 +45,7 @@ foreach ($target in $targets)
   $targetpath = ([System.Environment]::SystemDirectory + "\\" + $target.DllName)
   if (Test-Path -Path $targetpath -PathType Leaf)
   {
-	Write-Host "Replacing $($target.DeviceName) driver"
+	Write-Host "Replacing $($target.DeviceName) FF driver with version $((Get-Item SaiQFFB5.dll).VersionInfo.FileVersion)"
 	Try
 	{
 		Copy-Item -Path "SaiQFFB5.dll" -Destination $targetpath -force
@@ -56,7 +56,7 @@ foreach ($target in $targets)
 		Copy-Item -Path "SaiQFFB5.dll" -Destination $targetpath -force
 	}
 	
-	$confirmation = Read-Host "Do you want to change device name (needed for same games like DCS) [Y/n]"
+	$confirmation = Read-Host "Do you want to change device name? (needed for some games like DCS) [Y/n]"
 	if (($confirmation -eq 'y') -or ($confirmation -eq 'Y') -or ($confirmation -eq '')) {
 		$RegistryPath = "HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\$($target.HardwareId)"
 		$Name         = 'OEMName'
