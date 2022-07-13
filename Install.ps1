@@ -4,7 +4,6 @@ If([IntPtr]::Size -ne 8)
     Exit
 }
 
-
 $ver = $host | select version
 if ($ver.Version.Major -gt 1)  {$Host.Runspace.ThreadOptions = "ReuseThread"}
 
@@ -31,6 +30,8 @@ If ((New-Object Security.Principal.WindowsPrincipal $IsAdmin).IsInRole([Security
 	exit
 }
 
+Set-Location $PSScriptRoot
+
 Write-Host "Saitek Force Feedback driver fix (https://github.com/WallyCZ/saitek-cyborg-ff)"
 
 $targets = @(
@@ -43,6 +44,7 @@ $found = $false
 foreach ($target in $targets)
 {
   $targetpath = ([System.Environment]::SystemDirectory + "\\" + $target.DllName)
+  
   if (Test-Path -Path $targetpath -PathType Leaf)
   {
 	Write-Host "Replacing $($target.DeviceName) FF driver with version $((Get-Item SaiQFFB5.dll).VersionInfo.FileVersion)"
