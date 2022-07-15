@@ -36,8 +36,9 @@ Write-Host "Saitek Force Feedback driver fix (https://github.com/WallyCZ/saitek-
 
 $targets = @(
 	@{ DllName="SaiQFFB5.dll"; DeviceName="Saitek Cyborg Evo Force"; HardwareId="VID_06A3&PID_FFB5"; RenamedDevice="Saitek Cyborg Evo FF" },
-	@{ DllName="SaiQFF12.dll"; DeviceName="Saitek Cyborg 3D Rumble Force"; HardwareId="VID_06A3&PID_FF52"; RenamedDevice="Saitek Cyborg 3D Rumble FF" }
-)
+	@{ DllName="SaiQFF12.dll"; DeviceName="Saitek Cyborg 3D Rumble Force"; HardwareId="VID_06A3&PID_FF52"; RenamedDevice="Saitek Cyborg 3D Rumble FF"}
+    @{ DllName="SaiQFF12.dll"; DeviceName="Saitek Cyborg 3D Force Stick"; HardwareId="VID_06A3&PID_FF12"; RenamedDevice="Saitek Cyborg 3D FS" }
+    )
 
 $found = $false
 
@@ -60,13 +61,20 @@ foreach ($target in $targets)
 	
 	$confirmation = Read-Host "Do you want to change device name? (needed for some games like DCS) [Y/n]"
 	if (($confirmation -eq 'y') -or ($confirmation -eq 'Y') -or ($confirmation -eq '')) {
-		$RegistryPath = "HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\$($target.HardwareId)"
-		$Name         = 'OEMName'
-		New-ItemProperty -Path $RegistryPath -Name $Name -Value $target.RenamedDevice -PropertyType String -Force
+        
+         $RegistryPath = "HKCU:\System\CurrentControlSet\Control\MediaProperties\PrivateProperties\Joystick\OEM\$($target.HardwareId)"
+		 $Name         = 'OEMName'
+
+        try
+        {
+		    New-ItemProperty -Path $RegistryPath -Name $Name -Value $target.RenamedDevice -PropertyType String -Force -ErrorAction Stop
+        }
+        catch
+        {
+            Write-Host "Device $($target.DeviceName) not found in registry, skipping"
+        }
 	}
-	
 	$found = $true
-	break
   }
 }
 
