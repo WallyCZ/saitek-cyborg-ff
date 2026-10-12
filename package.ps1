@@ -16,7 +16,7 @@ $msiVersion = $Version.TrimStart("v") -replace "[^0-9.].*$", ""
 dotnet tool restore | Out-Null
 dotnet tool run wix extension add WixToolset.UI.wixext/5.0.2 | Out-Null
 $msi = Join-Path $PSScriptRoot "dist\SaitekFF-$Version.msi"
-dotnet tool run wix build installer\SaitekFF.wxs -arch x64 -ext WixToolset.UI.wixext -d "Version=$msiVersion" -d "BinDir=bin" -o $msi
+dotnet tool run wix build installer\SaitekFF.wxs -arch x64 -ext WixToolset.UI.wixext -d "Version=$msiVersion" -d "BinDir=bin" -pdbtype none -o $msi
 if ($LASTEXITCODE -ne 0) { throw "MSI build failed" }
 Write-Host "Created $msi"
 
