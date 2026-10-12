@@ -8,7 +8,7 @@ struct Settings {
     DWORD springGain = 100;         // spring effects
     DWORD damperGain = 100;         // damper, inertia and friction effects
     bool centering = true;          // centering spring when no game uses force feedback
-    DWORD centeringStrength = 50;
+    DWORD centeringStrength = 65;
 
     // Strength of the stick's centering spring when no game drives it, in device units (0..127)
     int CenteringValue() const { return centering ? (int)centeringStrength * 127 / 100 : 0; }
