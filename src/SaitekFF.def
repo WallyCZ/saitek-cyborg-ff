@@ -1,8 +1,13 @@
 LIBRARY SaitekFF
 EXPORTS
-    DllGetClassObject   PRIVATE
-    DllCanUnloadNow     PRIVATE
-    DllRegisterServer   PRIVATE
-    DllUnregisterServer PRIVATE
-    DllInstall          PRIVATE
+    DllGetClassObject    PRIVATE
+    DllCanUnloadNow      PRIVATE
+    DllRegisterServer    PRIVATE
+    DllUnregisterServer  PRIVATE
+    DllInstall           PRIVATE
     ApplySettingsW
+    MsiDetectSaitekDriver
+    MsiRegisterMachine
+    MsiUnregisterMachine
+    MsiRegisterUser
+    MsiUnregisterUser

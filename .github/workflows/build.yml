@@ -1,0 +1,63 @@
+# Builds the driver, the MSI installer and the zip (Install.ps1) on every push and pull request.
+# - push / pull request: the files are uploaded as a workflow artifact
+# - tag v1.2.3: a GitHub release v1.2.3 is published with the files
+# - manual run (Actions > Build > Run workflow): a draft release is created to test the release step;
+#   drafts are only visible to maintainers and create no tag until published, delete it afterwards
+name: Build
+
+on:
+  push:
+    branches: [main, win11]
+    tags: ['v*']
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version of the test draft release
+        required: true
+        default: 0.0.0-test
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Version
+        id: version
+        shell: pwsh
+        run: |
+          if ('${{ github.ref_type }}' -eq 'tag') { $v = '${{ github.ref_name }}'.TrimStart('v') }
+          elseif ('${{ github.event_name }}' -eq 'workflow_dispatch') { $v = '${{ inputs.version }}' }
+          else { $v = '0.0.0-dev.${{ github.run_number }}' }
+          "version=$v" >> $env:GITHUB_OUTPUT
+
+      - name: Build driver, MSI and zip
+        shell: pwsh
+        run: ./package.ps1 -Version '${{ steps.version.outputs.version }}'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SaitekFF-${{ steps.version.outputs.version }}
+          path: dist/*
+
+      - name: Release
+        if: github.ref_type == 'tag'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: gh release create '${{ github.ref_name }}' (Get-ChildItem dist/*).FullName --title '${{ github.ref_name }}' --generate-notes
+
+      - name: Test draft release
+        if: github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: >
+          gh release create 'v${{ steps.version.outputs.version }}' (Get-ChildItem dist/*).FullName
+          --draft --prerelease --target '${{ github.sha }}'
+          --title 'v${{ steps.version.outputs.version }} (test)'
+          --notes 'Test of the release pipeline from ${{ github.ref_name }}. Not published, delete it.'

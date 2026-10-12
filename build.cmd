@@ -22,5 +22,5 @@ if not exist "%OUT%" mkdir "%OUT%"
 if not exist "%OBJ%" mkdir "%OBJ%"
 cl /nologo /c /O2 /MT /W4 /EHsc /std:c++17 /DUNICODE /D_UNICODE /DNOMINMAX /Fo"%OBJ%\\" "%~dp0src\*.cpp" || exit /b 1
 rc /nologo /fo"%OBJ%\SaitekFF.res" "%~dp0src\SaitekFF.rc" || exit /b 1
-link /nologo /DLL /DEF:"%~dp0src\SaitekFF.def" /OUT:"%OUT%\SaitekFF.dll" "%OBJ%\*.obj" "%OBJ%\SaitekFF.res" hid.lib setupapi.lib dinput8.lib dxguid.lib ole32.lib advapi32.lib user32.lib || exit /b 1
+link /nologo /DLL /DEF:"%~dp0src\SaitekFF.def" /OUT:"%OUT%\SaitekFF.dll" "%OBJ%\*.obj" "%OBJ%\SaitekFF.res" hid.lib setupapi.lib dinput8.lib dxguid.lib cfgmgr32.lib newdev.lib msi.lib ole32.lib advapi32.lib user32.lib || exit /b 1
 exit /b 0

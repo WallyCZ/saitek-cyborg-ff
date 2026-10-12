@@ -6,3 +6,4 @@ obj/
 *.exp
 *.pdb
 dist/
+.wix/

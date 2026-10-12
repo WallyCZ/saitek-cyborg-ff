@@ -11,17 +11,19 @@ This driver needs **no kernel driver** and no Saitek software: the stick keeps t
 so Memory Integrity can stay on.
 
 ## Installation
-1. Download `SaitekFF-<version>.zip` from [Releases](https://github.com/WallyCZ/saitek-cyborg-ff/releases) and extract it.
-2. Right click `Install.ps1` and choose "Run with PowerShell" (it asks for administrator rights).
-3. If the original Saitek driver is installed, the script offers to remove it. This is required.
-4. Answer yes to renaming the device if you play DCS (DCS blacklists the original device name).
+Download `SaitekFF-<version>.msi` from [Releases](https://github.com/WallyCZ/saitek-cyborg-ff/releases) and run it.
+The installer asks two things:
+- if the original Saitek driver is installed, whether to remove it. Leave it checked: this driver cannot work
+  while the original one is installed.
+- whether to rename the stick, for games like DCS that block the original device name.
 
-Test it in the Game Controllers panel (`joy.cpl`) or in a game.
+Test it in the Game Controllers panel (`joy.cpl`) or in a game. Uninstall it from Settings > Apps.
 
-To uninstall, run `Install.ps1 -Uninstall` from PowerShell.
+Alternatively, without the MSI: download `SaitekFF-<version>.zip`, extract it, right click `Install.ps1` and
+choose "Run with PowerShell" (uninstall with `Install.ps1 -Uninstall`).
 
-The script installs the driver to `C:\Program Files\SaitekFF` and registers it for the stick. Without
-administrator rights the driver can also be registered just for the current user:
+Both install the driver to `C:\Program Files\SaitekFF` and register it for the stick. Without administrator
+rights the driver can also be registered just for the current user:
 `regsvr32 /n /i:user <path>\x64\SaitekFF.dll` (and the x86 one with `C:\Windows\SysWOW64\regsvr32.exe`).
 
 ## Settings
@@ -52,8 +54,11 @@ mode, inside the DirectInput effect driver:
 
 ## Building
 Run `build.cmd` (needs Visual Studio with the C++ workload). It produces `bin\x64\SaitekFF.dll` and
-`bin\x86\SaitekFF.dll`; `Install.ps1` in the repository root finds them there. `package.ps1 -Version x.y`
-creates the release zip.
+`bin\x86\SaitekFF.dll`; `Install.ps1` in the repository root finds them there. `package.ps1 -Version x.y.z`
+creates the MSI (WiX 5, installed by `dotnet tool restore`) and the zip in `dist\`.
+
+GitHub Actions builds both on every push. Pushing a tag `vX.Y.Z` publishes a release with them; running the
+Build workflow manually creates a draft release for testing.
 
 Tools for testing: `tools\fftest` (DirectInput force feedback tests, e.g. `fftest suite`, `fftest directions`)
 and `tools\hidraw` (raw HID report access).
