@@ -24,6 +24,13 @@ The script installs the driver to `C:\Program Files\SaitekFF` and registers it f
 administrator rights the driver can also be registered just for the current user:
 `regsvr32 /n /i:user <path>\x64\SaitekFF.dll` (and the x86 one with `C:\Windows\SysWOW64\regsvr32.exe`).
 
+## Settings
+Open the Game Controllers panel (`joy.cpl`), select the stick and click Properties. Next to Windows' own Test
+and Settings tabs there is a Force Feedback tab with:
+- effect strength for all effects, springs and dampers,
+- the stick's centering spring when no game uses force feedback (games with force feedback control it themselves),
+- test effects played by the stick buttons (trigger: machine gun, 2: explosion, 3: engine rumble, 4: bumpy road).
+
 ## Supported effects
 Constant force, ramp (emulated with a sawtooth wave, as the original driver did), square, sine, triangle,
 sawtooth up/down, spring, damper, and inertia/friction (played as damper, as the original driver did).
