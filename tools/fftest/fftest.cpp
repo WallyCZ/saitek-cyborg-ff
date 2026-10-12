@@ -180,6 +180,68 @@ static int Suite()
     return 0;
 }
 
+// Plays a constant force from each compass direction and measures where the stick actually moves
+// (DirectInput: the direction is where the force comes from; north = forward = low Y values)
+static int DirectionTest()
+{
+    LPDIRECTINPUTDEVICE8W dev;
+    HRESULT hr = g_di->CreateDevice(g_ffDevice, &dev, nullptr);
+    if (FAILED(hr)) { printf("CreateDevice failed 0x%08lX\n", hr); return 1; }
+    dev->SetDataFormat(&c_dfDIJoystick);
+    HWND wnd = CreateWindowExW(0, L"STATIC", L"fftest", WS_OVERLAPPED, 0, 0, 0, 0,
+                               nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    dev->SetCooperativeLevel(wnd, DISCL_EXCLUSIVE | DISCL_BACKGROUND);
+    if (FAILED(hr = dev->Acquire())) { printf("Acquire failed 0x%08lX\n", hr); return 1; }
+    auto position = [&](LONG& x, LONG& y) {
+        DIJOYSTATE js = {};
+        dev->Poll();
+        dev->GetDeviceState(sizeof(js), &js);
+        x = js.lX;
+        y = js.lY;
+    };
+
+    DWORD axes[2] = { DIJOFS_X, DIJOFS_Y };
+    DICONSTANTFORCE cf = { 7000 };
+    struct { const char* name; LONG direction; const char* expected; } dirs[] = {
+        { "NORTH", 0, "toward you (Y up)" },
+        { "EAST", 9000, "left (X down)" },
+        { "SOUTH", 18000, "away from you (Y down)" },
+        { "WEST", 27000, "right (X up)" },
+    };
+    for (auto& d : dirs) {
+        LONG x0, y0, x1, y1;
+        Sleep(1500);
+        position(x0, y0);
+        LONG dir[2] = { d.direction, 0 };
+        DIEFFECT eff = { sizeof(eff) };
+        eff.dwFlags = DIEFF_POLAR | DIEFF_OBJECTOFFSETS;
+        eff.dwDuration = 1200 * 1000;
+        eff.dwGain = DI_FFNOMINALMAX;
+        eff.dwTriggerButton = DIEB_NOTRIGGER;
+        eff.cAxes = 2;
+        eff.rgdwAxes = axes;
+        eff.rglDirection = dir;
+        eff.cbTypeSpecificParams = sizeof(cf);
+        eff.lpvTypeSpecificParams = &cf;
+        LPDIRECTINPUTEFFECT effect;
+        if (FAILED(hr = dev->CreateEffect(GUID_ConstantForce, &eff, &effect, nullptr))) {
+            printf("CreateEffect failed 0x%08lX\n", hr);
+            continue;
+        }
+        effect->Start(1, 0);
+        Sleep(1000);
+        position(x1, y1);
+        effect->Release();
+        LONG dx = x1 - x0, dy = y1 - y0;
+        const char* moved = labs(dx) > labs(dy) ? (dx < 0 ? "left" : "right") : (dy < 0 ? "away from you" : "toward you");
+        printf("from %-5s: X %+6ld  Y %+6ld  -> moved %-14s expected %s %s\n", d.name, dx, dy, moved, d.expected,
+               strstr(d.expected, moved) == d.expected ? "OK" : "MISMATCH");
+    }
+    dev->Unacquire();
+    dev->Release();
+    return 0;
+}
+
 int main(int argc, char** argv)
 {
     setvbuf(stdout, nullptr, _IONBF, 0);
@@ -204,6 +266,8 @@ int main(int argc, char** argv)
         }
         dev->Release();
     }
+    if (argc > 1 && !strcmp(argv[1], "directions"))
+        rc = g_ffFound ? DirectionTest() : 1;
     if (argc > 1 && !strcmp(argv[1], "suite"))
         rc = g_ffFound ? Suite() : 1;
     if (argc > 1 && !strcmp(argv[1], "play")) {

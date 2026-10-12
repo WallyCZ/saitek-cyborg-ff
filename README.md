@@ -1,15 +1,59 @@
-# Saitek Cyborg Evo and 3D Force Feedback 64-bit fix
+# Saitek Cyborg Evo Force force feedback driver for Windows 10 and 11
 
-This is fix of the Saitek Cyborg Evo/3D Force Feedback driver for 64 bit Windows applications.
-Immersion (developer of the FF driver) made huge mistake when converting from 32 bit to 64 bit and forgot one of the internal effect structure field as 32bit pointer, what causes losing high 32 bits of the pointer and crash when using this pointer.
+A new force feedback driver for the Saitek Cyborg Evo Force joystick (and probably the Cyborg 3D Force Stick
+and Cyborg 3D Rumble Force) that works on 64-bit Windows 10 and Windows 11, for both 64-bit and 32-bit games.
 
-# Installation Saitek Cyborg Evo/3D Force
-Download this repository (for example via [this](https://github.com/WallyCZ/saitek-cyborg-ff/archive/refs/heads/main.zip) zip file and then extract it on your Windows machine). Then run Install.ps1 (right click on file and "Run with PowerShell") and follow the instructions.
+It replaces the original Saitek/Immersion driver, which no longer works:
+- its kernel driver is blocked by Windows 11 Memory Integrity (Core Isolation),
+- its force feedback DLL crashes in 64-bit applications (Immersion stored 64-bit pointers in 32-bit fields).
 
-# Tested 
-- Game Device control panel
-- x360ce
-- DCS A-10C/BS2 (need to remove joystick from blacklist by renaming device - answer yes when Install.ps1 asks for renaming device)
+This driver needs **no kernel driver** and no Saitek software: the stick keeps the standard Windows HID driver,
+so Memory Integrity can stay on.
 
-# How it works
-All (hopefully) places before this pointer is used were patched, so the lost higher part of the pointer is taken from some another local pointer, which is not broken.
+## Installation
+1. Download `SaitekFF-<version>.zip` from [Releases](https://github.com/WallyCZ/saitek-cyborg-ff/releases) and extract it.
+2. Right click `Install.ps1` and choose "Run with PowerShell" (it asks for administrator rights).
+3. If the original Saitek driver is installed, the script offers to remove it. This is required.
+4. Answer yes to renaming the device if you play DCS (DCS blacklists the original device name).
+
+Test it in the Game Controllers panel (`joy.cpl`) or in a game.
+
+To uninstall, run `Install.ps1 -Uninstall` from PowerShell.
+
+The script installs the driver to `C:\Program Files\SaitekFF` and registers it for the stick. Without
+administrator rights the driver can also be registered just for the current user:
+`regsvr32 /n /i:user <path>\x64\SaitekFF.dll` (and the x86 one with `C:\Windows\SysWOW64\regsvr32.exe`).
+
+## Supported effects
+Constant force, ramp (emulated with a sawtooth wave, as the original driver did), square, sine, triangle,
+sawtooth up/down, spring, damper, and inertia/friction (played as damper, as the original driver did).
+Envelopes, trigger buttons and start delay are supported. Custom forces are not.
+
+## How it works
+The stick's HID descriptor describes a "host managed" PID force feedback device: the firmware understands
+the standard PID reports, but the driver itself has to decide which of the 10 effect slots each effect uses
+and where its parameters live in the stick's 300 bytes of effect memory. Windows' generic PID driver expects
+the device to manage that itself, which is why it crashes on this stick. The original Saitek package solved it
+with Immersion's kernel driver, which emulated a device managed stick; this driver does the same job in user
+mode, inside the DirectInput effect driver:
+
+- `src/hiddevice.*` - finds the force feedback reports in the descriptor, builds them with `HidP_*`, and reads
+  effect status from the stick
+- `src/ffdevice.*` - effect slots, effect memory allocation, conversion of DirectInput effects to device
+  reports, and swapping idle effects out when a game creates more than the stick can hold
+- `src/effectdriver.*`, `src/dllmain.cpp` - the `IDirectInputEffectDriver` COM object and its registration
+
+## Building
+Run `build.cmd` (needs Visual Studio with the C++ workload). It produces `bin\x64\SaitekFF.dll` and
+`bin\x86\SaitekFF.dll`; `Install.ps1` in the repository root finds them there. `package.ps1 -Version x.y`
+creates the release zip.
+
+Tools for testing: `tools\fftest` (DirectInput force feedback tests, e.g. `fftest suite`, `fftest directions`)
+and `tools\hidraw` (raw HID report access).
+
+## Troubleshooting
+Set `HKCU\Software\SaitekFF` `Debug` (DWORD) to `1` and the driver logs to `%TEMP%\SaitekFF.log` and to the
+debugger output (DebugView). Please attach the log when reporting a problem.
+
+## Tested
+- Saitek Cyborg Evo Force on Windows 11 (build 26200) with Memory Integrity on: all effects, 64-bit and 32-bit
