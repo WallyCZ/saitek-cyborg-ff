@@ -41,8 +41,8 @@ Envelopes, trigger buttons and start delay are supported. Custom forces are not.
 ## How it works
 The stick's HID descriptor describes a "host managed" PID force feedback device: the firmware understands
 the standard PID reports, but the driver itself has to decide which of the 10 effect slots each effect uses
-and where its parameters live in the stick's 300 bytes of effect memory. Windows' generic PID driver expects
-the device to manage that itself, which is why it crashes on this stick. The original Saitek package solved it
+and where its parameters live in the stick's 300 bytes of effect memory. Windows' generic PID driver does not
+handle such a device (it crashes on this stick). The original Saitek package solved it
 with Immersion's kernel driver, which emulated a device managed stick; this driver does the same job in user
 mode, inside the DirectInput effect driver:
 
@@ -50,7 +50,11 @@ mode, inside the DirectInput effect driver:
   effect status from the stick
 - `src/ffdevice.*` - effect slots, effect memory allocation, conversion of DirectInput effects to device
   reports, and swapping idle effects out when a game creates more than the stick can hold
-- `src/effectdriver.*`, `src/dllmain.cpp` - the `IDirectInputEffectDriver` COM object and its registration
+- `src/effectdriver.*` - the `IDirectInputEffectDriver` COM object DirectInput loads for the stick
+- `src/proppage.*`, `src/settings.*` - the Force Feedback tab in the Game Controllers panel and its settings
+- `src/registration.*`, `src/dllmain.cpp`, `src/msi.cpp` - COM and DirectInput registration (used by `regsvr32`
+  and by the MSI custom actions) and removal of the original Saitek driver
+- `installer/SaitekFF.wxs` - the MSI installer
 
 ## Building
 Run `build.cmd` (needs Visual Studio with the C++ workload). It produces `bin\x64\SaitekFF.dll` and
@@ -73,3 +77,6 @@ debugger output (DebugView). Please attach the log when reporting a problem.
 
 ## Tested
 - Saitek Cyborg Evo Force on Windows 11 (build 26200) with Memory Integrity on: all effects, 64-bit and 32-bit
+  programs, the Force Feedback tab
+- DCS on a second PC, installed with the MSI over the original Saitek driver
+- Not tested: Cyborg 3D Force Stick and Cyborg 3D Rumble Force (registered, expected to work the same way)
