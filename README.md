@@ -75,6 +75,12 @@ reconnecting the stick undoes.
 Set `HKCU\Software\SaitekFF` `Debug` (DWORD) to `1` and the driver logs to `%TEMP%\SaitekFF.log` and to the
 debugger output (DebugView). Please attach the log when reporting a problem.
 
+## Other Immersion devices
+Some other force feedback devices from the same era use Immersion's driver too, but need its kernel driver to
+work at all, so this driver does not support them. The old patched Immersion DLL from this project's first
+version is kept in [`legacy/`](legacy) for them; it is community tested with the **Logitech WingMan Formula
+Force** (see [legacy/README.md](legacy/README.md)).
+
 ## Tested
 - Saitek Cyborg Evo Force on Windows 11 (build 26200) with Memory Integrity on: all effects, 64-bit and 32-bit
   programs, the Force Feedback tab
