@@ -1,0 +1,9 @@
+bin/
+obj/
+*.obj
+*.exe
+*.lib
+*.exp
+*.pdb
+dist/
+.wix/
