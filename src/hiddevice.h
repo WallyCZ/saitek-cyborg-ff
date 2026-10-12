@@ -30,9 +30,10 @@ constexpr USAGE EnableActuators = 0x97, DisableActuators = 0x98, StopAllEffects 
 constexpr USAGE DevicePaused = 0x9F, ActuatorsEnabled = 0xA0, SafetySwitch = 0xA4, ActuatorPower = 0xA6;
 
 // Saitek/Immersion vendor control report: an array selecting a sub-command plus a 16-bit value.
-// The sub-command numbers match the I-FORCE protocol (3 = autocenter strength, 4 = autocenter enable).
+// The sub-command numbers match the I-FORCE protocol. Sub-command 3 sets the stick's own centering spring:
+// a signed 8-bit strength, 0 (off) to 127 (strongest); negative values also turn it off.
 constexpr USAGE VendorCommandBase = 0x310, VendorValue = 0x303;
-constexpr USAGE VendorAutocenterStrength = VendorCommandBase + 3, VendorAutocenterEnable = VendorCommandBase + 4;
+constexpr USAGE VendorCentering = VendorCommandBase + 3;
 }
 
 class HidDevice;
@@ -67,6 +68,8 @@ public:
     bool IsOpen() const { return writeHandle_ != INVALID_HANDLE_VALUE; }
 
     bool Send(const OutputReport& report);
+    bool SendVendor(USAGE command, USHORT value);
+    bool SetCentering(int strength) { return SendVendor(usage::VendorCentering, (USHORT)strength); }  // 0..127
     bool GetFeature(UCHAR reportId, std::vector<BYTE>& data);
 
     // Report IDs, found by a usage that only that report contains

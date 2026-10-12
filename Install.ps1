@@ -120,6 +120,9 @@ if (-not (Register-Dll $regsvr64 (Join-Path $installDir "x64\SaitekFF.dll")) -or
 }
 Write-Host "Driver installed to $installDir" -ForegroundColor Green
 
+# Send the centering spring setting (Game Controllers panel, Force Feedback tab) to the stick
+Start-Process (Join-Path $env:SystemRoot "System32\rundll32.exe") -ArgumentList "`"$(Join-Path $installDir 'x64\SaitekFF.dll')`",ApplySettings" -Wait
+
 $confirmation = Read-Host "Do you want to change device name? (needed for some games like DCS) [Y/n]"
 if (($confirmation -eq 'y') -or ($confirmation -eq 'Y') -or ($confirmation -eq '')) {
     foreach ($device in $devices) {

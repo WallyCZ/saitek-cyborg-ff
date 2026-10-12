@@ -6,9 +6,15 @@
 OutputReport::OutputReport(const HidDevice& device, UCHAR reportId)
     : device_(device), data_(device.Caps().OutputReportByteLength)
 {
-    if (!reportId || HidP_InitializeReportForID(HidP_Output, reportId, device.Preparsed(), (PCHAR)data_.data(),
-                                                (ULONG)data_.size()) != HIDP_STATUS_SUCCESS)
+    if (!reportId) {
         ok_ = false;
+        return;
+    }
+    // The parser refuses to initialize the vendor report (0x40) although it sets its fields fine and the stick
+    // accepts it; a zeroed report with the ID works for it
+    if (HidP_InitializeReportForID(HidP_Output, reportId, device.Preparsed(), (PCHAR)data_.data(), (ULONG)data_.size())
+        != HIDP_STATUS_SUCCESS)
+        data_[0] = reportId;
 }
 
 OutputReport& OutputReport::Value(USAGE page, USAGE usage, ULONG raw)
@@ -169,6 +175,19 @@ bool HidDevice::Send(const OutputReport& report)
         return false;
     }
     return true;
+}
+
+bool HidDevice::SendVendor(USAGE command, USHORT value)
+{
+    if (!ids.vendor)
+        return false;
+    OutputReport r(*this, ids.vendor);
+    r.Usage(usage::PageVendor, command).Value(usage::PageVendor, usage::VendorValue, value);
+    char text[64] = "";
+    for (BYTE b : r.Bytes())
+        sprintf_s(text + strlen(text), sizeof(text) - strlen(text), " %02X", b);
+    Log("vendor report%s", text);
+    return Send(r);
 }
 
 bool HidDevice::GetFeature(UCHAR reportId, std::vector<BYTE>& data)

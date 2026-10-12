@@ -7,6 +7,7 @@
 #include <memory>
 #include <vector>
 #include "hiddevice.h"
+#include "settings.h"
 
 // Allocator for the stick's parameter RAM. The stick is a "host managed" PID device: the driver decides
 // where in the device memory each effect's parameter blocks live and passes the offsets in the reports.
@@ -86,7 +87,6 @@ private:
     bool SendIfChanged(Effect& e, Sent which, const OutputReport& report);
     bool Operation(int slot, USAGE op, DWORD loops);
     bool Control(USAGE command);
-    bool Vendor(USAGE command, USHORT value);
     bool IsPlaying(Effect& e);
     Effect* Find(DWORD handle);
     void DestroyAll();
@@ -98,5 +98,5 @@ private:
     ParamMemory memory_;
     int constantSize_ = 2, periodicSize_ = 12, conditionSize_ = 8, envelopeSize_ = 14;
     DWORD nextHandle_ = 1, useCounter_ = 0;
-    bool autocenter_ = false;
+    Settings settings_;
 };

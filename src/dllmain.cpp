@@ -1,7 +1,11 @@
 #include <initguid.h>
 #include "effectdriver.h"
+#include "proppage.h"
+#include "devices.h"
+#include "settings.h"
 #include "log.h"
 #include <stdio.h>
+#include <string>
 
 #pragma comment(lib, "dxguid.lib")
 #pragma comment(lib, "advapi32.lib")
@@ -12,6 +16,8 @@ static HMODULE g_module;
 
 namespace {
 
+// One factory per COM class: the effect driver for DirectInput, the property sheet for joy.cpl
+template <class T>
 class ClassFactory : public IClassFactory {
 public:
     STDMETHODIMP QueryInterface(REFIID riid, void** ppv) override
@@ -29,11 +35,11 @@ public:
     {
         if (outer)
             return CLASS_E_NOAGGREGATION;
-        auto driver = new (std::nothrow) EffectDriver();
-        if (!driver)
+        T* object = Create();
+        if (!object)
             return E_OUTOFMEMORY;
-        HRESULT hr = driver->QueryInterface(riid, ppv);
-        driver->Release();
+        HRESULT hr = object->QueryInterface(riid, ppv);
+        object->Release();
         return hr;
     }
     STDMETHODIMP LockServer(BOOL lock) override
@@ -44,17 +50,16 @@ public:
             InterlockedDecrement(&g_objects);
         return S_OK;
     }
+
+private:
+    static T* Create();
 };
 
-ClassFactory g_factory;
+template <> EffectDriver* ClassFactory<EffectDriver>::Create() { return new (std::nothrow) EffectDriver(); }
+template <> PropSheet* ClassFactory<PropSheet>::Create() { return new (std::nothrow) PropSheet(g_module); }
 
-// Sticks driven by this driver. All are Immersion based Saitek sticks with the same report layout;
-// only the Cyborg Evo Force has been tested.
-const wchar_t* const g_devices[] = {
-    L"VID_06A3&PID_FFB5",  // Saitek Cyborg Evo Force
-    L"VID_06A3&PID_FF12",  // Saitek Cyborg 3D Force Stick
-    L"VID_06A3&PID_FF52",  // Saitek Cyborg 3D Rumble Force
-};
+ClassFactory<EffectDriver> g_driverFactory;
+ClassFactory<PropSheet> g_sheetFactory;
 
 constexpr wchar_t OemKey[] = L"System\\CurrentControlSet\\Control\\MediaProperties\\PrivateProperties\\Joystick\\OEM\\";
 
@@ -107,32 +112,48 @@ LSTATUS SetString(HKEY key, const wchar_t* name, const wchar_t* value)
     return RegSetValueExW(key, name, 0, REG_SZ, (const BYTE*)value, (DWORD)(wcslen(value) + 1) * sizeof(wchar_t));
 }
 
-void ClsidString(wchar_t* out, size_t size)
+std::wstring GuidString(REFGUID guid)
 {
-    StringFromGUID2(CLSID_SaitekFF, out, (int)size);
+    wchar_t text[64];
+    StringFromGUID2(guid, text, ARRAYSIZE(text));
+    return text;
 }
 
-// Writes OEMForceFeedback for one stick into HKLM or HKCU. DirectInput keeps a per-user copy of the OEM
-// data in HKCU, which Windows fills with its generic PID driver when the stick is first plugged in.
+// Writes the stick's DirectInput OEM data into HKLM or HKCU: OEMForceFeedback (our effect driver and its
+// effects) and ConfigCLSID (our property sheet in the Game Controllers panel). DirectInput keeps a per-user
+// copy of the OEM data in HKCU, which Windows fills with its generic PID driver when the stick is first
+// plugged in.
 LSTATUS RegisterDevice(HKEY root, const wchar_t* device)
 {
-    wchar_t path[256], clsid[64];
-    swprintf_s(path, L"%s%s\\OEMForceFeedback", OemKey, device);
-    ClsidString(clsid, ARRAYSIZE(clsid));
+    wchar_t oem[256], path[256];
+    swprintf_s(oem, L"%s%s", OemKey, device);
+    swprintf_s(path, L"%s\\OEMForceFeedback", oem);
     RegDeleteTreeW(root, path);
 
+    HKEY key;
+    LSTATUS rc = RegCreateKeyExW(root, oem, 0, nullptr, 0, KEY_WRITE | KEY_QUERY_VALUE, nullptr, &key, nullptr);
+    if (rc != ERROR_SUCCESS)
+        return rc;
+    SetString(key, L"ConfigCLSID", GuidString(CLSID_SaitekFFConfig).c_str());
+    // DirectInput only reports the joystick type (and so our ConfigCLSID to joy.cpl) when its hardware
+    // settings exist; Windows does not create them for HID sticks. Same value as the original Saitek INF.
+    if (root == HKEY_LOCAL_MACHINE && RegQueryValueExW(key, L"OEMData", nullptr, nullptr, nullptr, nullptr) != ERROR_SUCCESS) {
+        const BYTE oemData[] = { 0x03, 0x00, 0x08, 0x10, 0x0C, 0x00, 0x00, 0x00 };  // JOYREGHWSETTINGS: flags, 12 buttons
+        RegSetValueExW(key, L"OEMData", 0, REG_BINARY, oemData, sizeof(oemData));
+    }
+    RegCloseKey(key);
+
     HKEY ff;
-    LSTATUS rc = RegCreateKeyExW(root, path, 0, nullptr, 0, KEY_ALL_ACCESS, nullptr, &ff, nullptr);
+    rc = RegCreateKeyExW(root, path, 0, nullptr, 0, KEY_WRITE, nullptr, &ff, nullptr);
     if (rc != ERROR_SUCCESS)
         return rc;
     DIFFDEVICEATTRIBUTES attributes = { 0, 1000, 1000 };
-    SetString(ff, L"CLSID", clsid);
+    SetString(ff, L"CLSID", GuidString(CLSID_SaitekFF).c_str());
     RegSetValueExW(ff, L"Attributes", 0, REG_BINARY, (const BYTE*)&attributes, sizeof(attributes));
     for (const auto& effect : g_effects) {
-        HKEY key;
         wchar_t sub[128];
         swprintf_s(sub, L"Effects\\%s", effect.guid);
-        if (RegCreateKeyExW(ff, sub, 0, nullptr, 0, KEY_ALL_ACCESS, nullptr, &key, nullptr) == ERROR_SUCCESS) {
+        if (RegCreateKeyExW(ff, sub, 0, nullptr, 0, KEY_WRITE, nullptr, &key, nullptr) == ERROR_SUCCESS) {
             SetString(key, nullptr, effect.name);
             RegSetValueExW(key, L"Attributes", 0, REG_BINARY, (const BYTE*)&effect.attributes,
                            sizeof(effect.attributes));
@@ -143,16 +164,53 @@ LSTATUS RegisterDevice(HKEY root, const wchar_t* device)
     return ERROR_SUCCESS;
 }
 
-// Removes our OEMForceFeedback registration (only if it still points to this driver)
+bool ValueIs(HKEY root, const wchar_t* path, const wchar_t* name, REFGUID guid)
+{
+    wchar_t current[64] = L"";
+    DWORD size = sizeof(current);
+    return RegGetValueW(root, path, name, RRF_RT_REG_SZ, nullptr, current, &size) == ERROR_SUCCESS &&
+           !_wcsicmp(current, GuidString(guid).c_str());
+}
+
+// Removes our registration for one stick (only the parts that still point to this driver)
 void UnregisterDevice(HKEY root, const wchar_t* device)
 {
-    wchar_t path[256], clsid[64], current[64] = L"";
-    swprintf_s(path, L"%s%s\\OEMForceFeedback", OemKey, device);
-    ClsidString(clsid, ARRAYSIZE(clsid));
-    DWORD size = sizeof(current);
-    if (RegGetValueW(root, path, L"CLSID", RRF_RT_REG_SZ, nullptr, current, &size) == ERROR_SUCCESS &&
-        !_wcsicmp(current, clsid))
+    wchar_t oem[256], path[256];
+    swprintf_s(oem, L"%s%s", OemKey, device);
+    swprintf_s(path, L"%s\\OEMForceFeedback", oem);
+    if (ValueIs(root, path, L"CLSID", CLSID_SaitekFF))
         RegDeleteTreeW(root, path);
+    if (ValueIs(root, oem, L"ConfigCLSID", CLSID_SaitekFFConfig))
+        RegDeleteKeyValueW(root, oem, L"ConfigCLSID");
+}
+
+// In a 32-bit process this lands in the WOW64 view of Software\Classes, as it should
+LSTATUS RegisterComClass(HKEY root, REFCLSID clsid, const wchar_t* name)
+{
+    wchar_t module[MAX_PATH], key[128];
+    GetModuleFileNameW(g_module, module, MAX_PATH);
+    swprintf_s(key, L"Software\\Classes\\CLSID\\%s", GuidString(clsid).c_str());
+    HKEY k;
+    LSTATUS rc = RegCreateKeyExW(root, key, 0, nullptr, 0, KEY_WRITE, nullptr, &k, nullptr);
+    if (rc != ERROR_SUCCESS)
+        return rc;
+    SetString(k, nullptr, name);
+    RegCloseKey(k);
+    wcscat_s(key, L"\\InprocServer32");
+    rc = RegCreateKeyExW(root, key, 0, nullptr, 0, KEY_WRITE, nullptr, &k, nullptr);
+    if (rc != ERROR_SUCCESS)
+        return rc;
+    SetString(k, nullptr, module);
+    SetString(k, L"ThreadingModel", L"Both");
+    RegCloseKey(k);
+    return ERROR_SUCCESS;
+}
+
+void UnregisterComClass(HKEY root, REFCLSID clsid)
+{
+    wchar_t key[128];
+    swprintf_s(key, L"Software\\Classes\\CLSID\\%s", GuidString(clsid).c_str());
+    RegDeleteTreeW(root, key);
 }
 
 }  // namespace
@@ -169,60 +227,42 @@ BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
 
 STDAPI DllGetClassObject(REFCLSID clsid, REFIID riid, LPVOID* ppv)
 {
-    if (clsid != CLSID_SaitekFF) {
-        *ppv = nullptr;
-        return CLASS_E_CLASSNOTAVAILABLE;
-    }
-    return g_factory.QueryInterface(riid, ppv);
+    if (clsid == CLSID_SaitekFF)
+        return g_driverFactory.QueryInterface(riid, ppv);
+    if (clsid == CLSID_SaitekFFConfig)
+        return g_sheetFactory.QueryInterface(riid, ppv);
+    *ppv = nullptr;
+    return CLASS_E_CLASSNOTAVAILABLE;
 }
 
 STDAPI DllCanUnloadNow() { return g_objects == 0 ? S_OK : S_FALSE; }
 
-// Registers the COM class and the stick's OEMForceFeedback data. The machine-wide variant (needs admin)
-// writes HKLM and the current user's copy; the per-user variant writes HKCU only.
+// Registers the COM classes and the sticks' OEM data. The machine-wide variant (needs admin) writes HKLM
+// and the current user's copy; the per-user variant writes HKCU only.
 static HRESULT Register(bool machine)
 {
-    wchar_t clsid[64], path[MAX_PATH], key[128];
-    ClsidString(clsid, ARRAYSIZE(clsid));
-    GetModuleFileNameW(g_module, path, MAX_PATH);
     HKEY root = machine ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER;
-
-    // In a 32-bit process this lands in the WOW64 view of Software\Classes, as it should
-    swprintf_s(key, L"Software\\Classes\\CLSID\\%s", clsid);
-    HKEY k;
-    LSTATUS rc = RegCreateKeyExW(root, key, 0, nullptr, 0, KEY_ALL_ACCESS, nullptr, &k, nullptr);
-    if (rc != ERROR_SUCCESS)
-        return HRESULT_FROM_WIN32(rc);
-    SetString(k, nullptr, L"Saitek Cyborg force feedback driver");
-    RegCloseKey(k);
-    wcscat_s(key, L"\\InprocServer32");
-    rc = RegCreateKeyExW(root, key, 0, nullptr, 0, KEY_ALL_ACCESS, nullptr, &k, nullptr);
-    if (rc != ERROR_SUCCESS)
-        return HRESULT_FROM_WIN32(rc);
-    SetString(k, nullptr, path);
-    SetString(k, L"ThreadingModel", L"Both");
-    RegCloseKey(k);
-
-    for (const wchar_t* device : g_devices) {
-        rc = RegisterDevice(root, device);
-        if (rc != ERROR_SUCCESS)
-            return HRESULT_FROM_WIN32(rc);
-        if (machine)
-            RegisterDevice(HKEY_CURRENT_USER, device);
+    LSTATUS rc = RegisterComClass(root, CLSID_SaitekFF, L"Saitek Cyborg force feedback driver");
+    if (rc == ERROR_SUCCESS)
+        rc = RegisterComClass(root, CLSID_SaitekFFConfig, L"Saitek Cyborg force feedback settings");
+    for (const auto& device : g_devices) {
+        if (rc == ERROR_SUCCESS)
+            rc = RegisterDevice(root, device.hardwareId);
+        if (rc == ERROR_SUCCESS && machine)
+            RegisterDevice(HKEY_CURRENT_USER, device.hardwareId);
     }
-    return S_OK;
+    return HRESULT_FROM_WIN32(rc);
 }
 
 static HRESULT Unregister(bool machine)
 {
-    wchar_t clsid[64], key[128];
-    ClsidString(clsid, ARRAYSIZE(clsid));
-    swprintf_s(key, L"Software\\Classes\\CLSID\\%s", clsid);
-    RegDeleteTreeW(machine ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER, key);
-    for (const wchar_t* device : g_devices) {
+    HKEY root = machine ? HKEY_LOCAL_MACHINE : HKEY_CURRENT_USER;
+    UnregisterComClass(root, CLSID_SaitekFF);
+    UnregisterComClass(root, CLSID_SaitekFFConfig);
+    for (const auto& device : g_devices) {
         if (machine)
-            UnregisterDevice(HKEY_LOCAL_MACHINE, device);
-        UnregisterDevice(HKEY_CURRENT_USER, device);
+            UnregisterDevice(HKEY_LOCAL_MACHINE, device.hardwareId);
+        UnregisterDevice(HKEY_CURRENT_USER, device.hardwareId);
     }
     return S_OK;
 }
@@ -230,6 +270,12 @@ static HRESULT Unregister(bool machine)
 STDAPI DllRegisterServer() { return Register(true); }
 
 STDAPI DllUnregisterServer() { return Unregister(true); }
+
+// rundll32 SaitekFF.dll,ApplySettings  sends the saved centering spring settings to the stick
+extern "C" void CALLBACK ApplySettingsW(HWND, HINSTANCE, LPWSTR, int)
+{
+    ApplyCentering(Settings::Load());
+}
 
 // regsvr32 /n /i:user SaitekFF.dll  registers for the current user only (no admin rights needed)
 STDAPI DllInstall(BOOL install, LPCWSTR cmdLine)

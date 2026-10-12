@@ -25,15 +25,6 @@ int AxisInstance(DWORD objectId) { return DIDFT_GETINSTANCE(objectId); }
 
 int Align(int size, int alignment) { return (size + alignment - 1) / alignment * alignment; }
 
-DWORD ReadSetting(const wchar_t* name, DWORD fallback)
-{
-    DWORD value = 0, size = sizeof(value);
-    if (RegGetValueW(HKEY_CURRENT_USER, L"Software\\SaitekFF", name, RRF_RT_REG_DWORD, nullptr, &value, &size)
-        == ERROR_SUCCESS)
-        return value;
-    return fallback;
-}
-
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -130,7 +121,7 @@ HRESULT FFDevice::Open(const wchar_t* path)
 
     slots_.assign(maxEffects, nullptr);
     memory_.Reset(ramSize, alignment);
-    autocenter_ = ReadSetting(L"Autocenter", 0) != 0;
+    settings_ = Settings::Load();
     Log("device memory %d bytes (alignment %d), %d effect slots, blocks: constant %d periodic %d condition %d "
         "envelope %d",
         ramSize, alignment, maxEffects, constantSize_, periodicSize_, conditionSize_, envelopeSize_);
@@ -144,8 +135,8 @@ void FFDevice::Close()
         return;
     Control(usage::StopAllEffects);
     DestroyAll();
-    if (!autocenter_)
-        Vendor(usage::VendorAutocenterEnable, 1);  // give the stick its centering spring back
+    // Back to the centering spring the user chose for when no game drives the stick
+    hid_.SetCentering(Settings::Load().CenteringValue());
     hid_.Close();
     Log("device closed");
 }
@@ -178,8 +169,8 @@ HRESULT FFDevice::SendCommand(DWORD command)
         if (!Control(usage::DeviceReset))
             return DIERR_GENERIC;
         // DirectInput applications drive centering with their own spring effects
-        if (!autocenter_)
-            Vendor(usage::VendorAutocenterEnable, 0);
+        hid_.SetCentering(0);
+        settings_ = Settings::Load();
         return DI_OK;
     case DISFFC_STOPALL:
         for (auto& [handle, e] : effects_)
@@ -529,7 +520,11 @@ bool FFDevice::SendIfChanged(Effect& e, Sent which, const OutputReport& report)
 
 HRESULT FFDevice::SendEffect(Effect& e)
 {
-    auto scale = [&](LONG v) { return (LONG)MulDiv(v, (int)e.gain, Nominal); };
+    // Effect gain from the game times the strength settings from the Game Controllers panel
+    DWORD typeGain = e.type == usage::Spring ? settings_.springGain
+                   : IsCondition(e.type) ? settings_.damperGain : 100;
+    int gain = MulDiv((int)e.gain, (int)(settings_.gain * typeGain), 100 * 100);
+    auto scale = [&](LONG v) { return (LONG)MulDiv(v, gain, Nominal); };
     const bool twoAxes = e.axisCount == 2;
 
     // Direction in hundredths of a degree, 0 = north, clockwise (DirectInput polar convention)
@@ -674,14 +669,5 @@ bool FFDevice::Control(USAGE command)
 {
     OutputReport r(hid_, hid_.ids.deviceControl);
     r.Usage(usage::PagePid, command);
-    return hid_.Send(r);
-}
-
-bool FFDevice::Vendor(USAGE command, USHORT value)
-{
-    if (!hid_.ids.vendor)
-        return false;
-    OutputReport r(hid_, hid_.ids.vendor);
-    r.Usage(usage::PageVendor, command).Value(usage::PageVendor, usage::VendorValue, value);
     return hid_.Send(r);
 }
