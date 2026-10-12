@@ -64,6 +64,10 @@ Tools for testing: `tools\fftest` (DirectInput force feedback tests, e.g. `fftes
 and `tools\hidraw` (raw HID report access).
 
 ## Troubleshooting
+If the stick does not center itself after replacing the original Saitek driver, unplug it and plug it back in.
+When the original driver shuts down it switches the stick's centering spring off in a way that only
+reconnecting the stick undoes.
+
 Set `HKCU\Software\SaitekFF` `Debug` (DWORD) to `1` and the driver logs to `%TEMP%\SaitekFF.log` and to the
 debugger output (DebugView). Please attach the log when reporting a problem.
 

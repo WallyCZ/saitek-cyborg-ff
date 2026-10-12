@@ -75,7 +75,8 @@ function Remove-SaitekDriver {
         Write-Host "Removed $($package.Original)"
     }
     pnputil /scan-devices | Out-Null
-    Write-Host "Unplug the stick and plug it back in if force feedback does not work right away."
+    # The original driver leaves the stick's centering spring switched off until the stick is power cycled
+    Write-Host "Unplug the stick and plug it back in now: the original driver left its centering spring switched off." -ForegroundColor Yellow
     return $true
 }
 

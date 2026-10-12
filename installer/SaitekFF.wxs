@@ -50,6 +50,11 @@
     <CustomAction Id="SaitekUnregisterUser" FileRef="SaitekFF64" DllEntry="MsiUnregisterUser" Execute="deferred" Impersonate="yes" Return="ignore" />
     <CustomAction Id="SaitekUnregisterMachine" FileRef="SaitekFF64" DllEntry="MsiUnregisterMachine" Execute="deferred" Impersonate="no" Return="ignore" />
 
+    <!-- When the original driver shuts down it leaves the stick's centering spring disabled until the stick is
+         power cycled (vendor sub-command 6 = 0xFFFF); no command brings it back, so ask for a replug -->
+    <SetProperty Id="WIXUI_EXITDIALOGOPTIONALTEXT" After="SaitekDetectDriver" Sequence="ui" Condition="SAITEKDRIVERFOUND"
+                 Value="Unplug the stick and plug it back in. The original Saitek driver left its centering spring switched off until the stick is reconnected." />
+
     <InstallUISequence>
       <Custom Action="SaitekDetectDriver" Before="CostInitialize" Condition="NOT Installed" />
     </InstallUISequence>
