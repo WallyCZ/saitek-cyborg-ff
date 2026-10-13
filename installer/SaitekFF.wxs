@@ -7,7 +7,7 @@
 <Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
   <Package Name="Saitek Cyborg Force Feedback Driver" Manufacturer="WallyCZ" Version="$(Version)"
            UpgradeCode="{307E56EA-9DF9-4F47-882C-C794C13D2E57}" Scope="perMachine" Compressed="yes">
-    <MajorUpgrade DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of [ProductName] is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/WallyCZ/saitek-cyborg-ff" />
