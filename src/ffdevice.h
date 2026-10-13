@@ -91,8 +91,14 @@ private:
     Effect* Find(DWORD handle);
     void DestroyAll();
 
+    static DWORD WINAPI SettingsWatcher(LPVOID self);
+    void WatchSettings();
+    void StopWatchingSettings();
+
     CRITICAL_SECTION lock_;
     HidDevice hid_;
+    HANDLE watcher_ = nullptr, stopWatcher_ = nullptr;
+    HANDLE session_ = nullptr;  // marks a running force feedback session, see ApplyCentering
     std::map<DWORD, std::unique_ptr<Effect>> effects_;
     std::vector<Effect*> slots_;
     ParamMemory memory_;

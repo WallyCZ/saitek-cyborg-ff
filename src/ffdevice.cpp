@@ -122,6 +122,9 @@ HRESULT FFDevice::Open(const wchar_t* path)
     slots_.assign(maxEffects, nullptr);
     memory_.Reset(ramSize, alignment);
     settings_ = Settings::Load();
+    session_ = CreateEventW(nullptr, TRUE, FALSE, SessionEventName);
+    stopWatcher_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    watcher_ = CreateThread(nullptr, 0, SettingsWatcher, this, 0, nullptr);
     Log("device memory %d bytes (alignment %d), %d effect slots, blocks: constant %d periodic %d condition %d "
         "envelope %d",
         ramSize, alignment, maxEffects, constantSize_, periodicSize_, conditionSize_, envelopeSize_);
@@ -130,6 +133,7 @@ HRESULT FFDevice::Open(const wchar_t* path)
 
 void FFDevice::Close()
 {
+    StopWatchingSettings();  // outside the lock: the watcher takes it
     Lock lock(lock_);
     if (!hid_.IsOpen())
         return;
@@ -138,7 +142,57 @@ void FFDevice::Close()
     // Back to the centering spring the user chose for when no game drives the stick
     hid_.SetCentering(Settings::Load().CenteringValue());
     hid_.Close();
+    if (session_) {
+        CloseHandle(session_);
+        session_ = nullptr;
+    }
     Log("device closed");
+}
+
+DWORD WINAPI FFDevice::SettingsWatcher(LPVOID self)
+{
+    static_cast<FFDevice*>(self)->WatchSettings();
+    return 0;
+}
+
+// Applies changes from the Force Feedback page right away: reloads the settings and sends the effects on the
+// stick again with the new strengths (only reports whose content changed go out)
+void FFDevice::WatchSettings()
+{
+    HKEY key;
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, L"Software\\SaitekFF", 0, nullptr, 0, KEY_NOTIFY | KEY_READ, nullptr, &key,
+                        nullptr) != ERROR_SUCCESS)
+        return;
+    HANDLE changed = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    HANDLE waits[2] = { stopWatcher_, changed };
+    while (RegNotifyChangeKeyValue(key, FALSE, REG_NOTIFY_CHANGE_LAST_SET, changed, TRUE) == ERROR_SUCCESS &&
+           WaitForMultipleObjects(2, waits, FALSE, INFINITE) == WAIT_OBJECT_0 + 1) {
+        Sleep(100);  // the page writes several values in a row
+        Lock lock(lock_);
+        settings_ = Settings::Load();
+        int resent = 0;
+        for (Effect* e : slots_)
+            if (e && SUCCEEDED(SendEffect(*e)))
+                resent++;
+        Log("settings changed: gain %lu, springs %lu, dampers %lu; %d effects updated", settings_.gain,
+            settings_.springGain, settings_.damperGain, resent);
+    }
+    CloseHandle(changed);
+    RegCloseKey(key);
+}
+
+void FFDevice::StopWatchingSettings()
+{
+    if (watcher_) {
+        SetEvent(stopWatcher_);
+        WaitForSingleObject(watcher_, 2000);
+        CloseHandle(watcher_);
+        watcher_ = nullptr;
+    }
+    if (stopWatcher_) {
+        CloseHandle(stopWatcher_);
+        stopWatcher_ = nullptr;
+    }
 }
 
 void FFDevice::GetVersions(LPDIDRIVERVERSIONS versions)

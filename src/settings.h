@@ -17,5 +17,9 @@ struct Settings {
     void Save() const;
 };
 
-// Sends the centering spring settings to every connected stick (used when no game drives the stick)
+// Exists while a game (or the page's test effects) drives the stick; the driver keeps the stick's own
+// centering spring off then and restores it when the session ends
+constexpr wchar_t SessionEventName[] = L"Local\\SaitekFF.ForceFeedbackSession";
+
+// Sends the centering spring settings to every connected stick, unless a force feedback session runs
 void ApplyCentering(const Settings& settings);
