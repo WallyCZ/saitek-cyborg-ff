@@ -21,6 +21,14 @@ set OBJ=%~dp0obj\%1
 if not exist "%OUT%" mkdir "%OUT%"
 if not exist "%OBJ%" mkdir "%OBJ%"
 cl /nologo /c /O2 /MT /W4 /EHsc /std:c++17 /DUNICODE /D_UNICODE /DNOMINMAX /Fo"%OBJ%\\" "%~dp0src\*.cpp" || exit /b 1
-rc /nologo /fo"%OBJ%\SaitekFF.res" "%~dp0src\SaitekFF.rc" || exit /b 1
+rem Version resource from SAITEKFF_VERSION (set by package.ps1, e.g. 1.0.2); the MSI needs versioned files
+rem to replace a DLL left by an earlier installation
+set VERSION=%SAITEKFF_VERSION%
+if not defined VERSION set VERSION=0.0.0.0
+for /f "tokens=1-4 delims=." %%a in ("%VERSION%.0.0.0") do (
+    > "%OBJ%\version.h" echo #define SAITEKFF_VERSION %%a,%%b,%%c,%%d
+    >> "%OBJ%\version.h" echo #define SAITEKFF_VERSION_STRING "%%a.%%b.%%c.%%d"
+)
+rc /nologo /i "%OBJ%" /fo"%OBJ%\SaitekFF.res" "%~dp0src\SaitekFF.rc" || exit /b 1
 link /nologo /DLL /DEF:"%~dp0src\SaitekFF.def" /OUT:"%OUT%\SaitekFF.dll" "%OBJ%\*.obj" "%OBJ%\SaitekFF.res" hid.lib setupapi.lib dinput8.lib dxguid.lib cfgmgr32.lib newdev.lib msi.lib ole32.lib advapi32.lib user32.lib || exit /b 1
 exit /b 0

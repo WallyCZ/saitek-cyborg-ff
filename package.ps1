@@ -7,12 +7,13 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
+# MSI versions are numeric: "2.0" or "v2.0.1" become 2.0 / 2.0.1; the DLLs get the same version
+$msiVersion = $Version.TrimStart("v") -replace "[^0-9.].*$", ""
+$env:SAITEKFF_VERSION = $msiVersion
 cmd /c "`"$PSScriptRoot\build.cmd`""
 if ($LASTEXITCODE -ne 0) { throw "build failed" }
 New-Item -ItemType Directory -Force dist | Out-Null
 
-# MSI versions are numeric: "2.0" or "v2.0.1" become 2.0 / 2.0.1
-$msiVersion = $Version.TrimStart("v") -replace "[^0-9.].*$", ""
 dotnet tool restore | Out-Null
 dotnet tool run wix extension add WixToolset.UI.wixext/5.0.2 | Out-Null
 $msi = Join-Path $PSScriptRoot "dist\SaitekFF-$Version.msi"
