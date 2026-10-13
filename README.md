@@ -31,7 +31,10 @@ Open the Game Controllers panel (`joy.cpl`), select the stick and click Properti
 and Settings tabs there is a Force Feedback tab with:
 - effect strength for all effects, springs and dampers,
 - the stick's centering spring when no game uses force feedback (games with force feedback control it themselves),
-- test effects played by the stick buttons (trigger: machine gun, 2: explosion, 3: engine rumble, 4: bumpy road).
+- test effects played by the stick buttons (trigger: machine gun, 2: explosion, 3: engine rumble, 4: bumpy road,
+  5: spring, 6: damper).
+
+Changes take effect when you click Apply, also in a game that is running.
 
 ## Supported effects
 Constant force, ramp (emulated with a sawtooth wave, as the original driver did), square, sine, triangle,
