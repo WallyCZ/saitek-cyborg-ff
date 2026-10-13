@@ -4,7 +4,7 @@
 
 LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
 
-IDD_FORCE DIALOGEX 0, 0, 252, 250
+IDD_FORCE DIALOGEX 0, 0, 252, 258
 STYLE DS_SHELLFONT | DS_CONTROL | WS_CHILD | WS_CAPTION
 CAPTION "Force Feedback"
 FONT 8, "MS Shell Dlg", 0, 0, 0x1
@@ -19,7 +19,7 @@ BEGIN
     LTEXT           "Dampers", -1, 15, 63, 52, 8
     CONTROL         "", IDC_DAMPER, TRACKBAR_CLASS, TBS_HORZ | TBS_AUTOTICKS | WS_TABSTOP, 67, 59, 140, 15
     RTEXT           "", IDC_DAMPER_VALUE, 209, 63, 28, 8
-    LTEXT           "Changes apply to games started afterwards.", -1, 15, 83, 222, 8
+    LTEXT           "Apply takes effect right away, also in a running game.", -1, 15, 83, 222, 8
 
     GROUPBOX        "Centering spring", -1, 7, 106, 238, 66
     AUTOCHECKBOX    "Center the stick when no game uses force feedback", IDC_CENTERING, 15, 120, 222, 10
@@ -28,9 +28,9 @@ BEGIN
     RTEXT           "", IDC_CENTERING_VALUE, 209, 140, 28, 8
     LTEXT           "Games with force feedback center the stick themselves.", -1, 15, 157, 222, 8
 
-    GROUPBOX        "Test", -1, 7, 178, 238, 46
+    GROUPBOX        "Test", -1, 7, 178, 238, 54
     AUTOCHECKBOX    "Play test effects with the stick buttons", IDC_TEST_EFFECTS, 15, 191, 222, 10
-    LTEXT           "Trigger: machine gun, 2: explosion, 3: engine rumble, 4: bumpy road", IDC_TEST_STATUS, 15, 206, 222, 8
+    LTEXT           "Trigger: machine gun, 2: explosion, 3: engine rumble, 4: bumpy road, 5: spring, 6: damper", IDC_TEST_STATUS, 15, 205, 222, 16
 
-    PUSHBUTTON      "&Defaults", IDC_DEFAULTS, 7, 230, 60, 14
+    PUSHBUTTON      "&Defaults", IDC_DEFAULTS, 7, 238, 60, 14
 END

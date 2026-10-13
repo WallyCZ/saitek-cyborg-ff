@@ -52,6 +52,11 @@ void Settings::Save() const
 
 void ApplyCentering(const Settings& settings)
 {
+    if (HANDLE session = OpenEventW(SYNCHRONIZE, FALSE, SessionEventName)) {
+        CloseHandle(session);
+        Log("centering not applied now: a force feedback session is running and will apply it when it ends");
+        return;
+    }
     GUID hidGuid;
     HidD_GetHidGuid(&hidGuid);
     HDEVINFO set = SetupDiGetClassDevsW(&hidGuid, nullptr, nullptr, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);

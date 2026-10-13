@@ -68,6 +68,11 @@ bool TestEffects::Start(HWND window)
     Add(GUID_ConstantForce, 13500, 900, 1, INFINITE, &blast, sizeof(blast), &fade);       // explosion
     Add(GUID_Sine, 9000, 1500, 2, INFINITE, &engine, sizeof(engine));                     // engine rumble
     Add(GUID_Square, 0, 1500, 3, INFINITE, &road, sizeof(road));                          // bumpy road
+    // One condition per axis, so the Springs and Dampers sliders can be tried as well
+    DICONDITION spring[2] = { { 0, 8000, 8000, 10000, 10000, 0 }, { 0, 8000, 8000, 10000, 10000, 0 } };
+    DICONDITION damper[2] = { { 0, 10000, 10000, 10000, 10000, 0 }, { 0, 10000, 10000, 10000, 10000, 0 } };
+    Add(GUID_Spring, 0, 3000, 4, INFINITE, spring, sizeof(spring));                       // spring
+    Add(GUID_Damper, 0, 3000, 5, INFINITE, damper, sizeof(damper));                       // damper
     Log("test effects armed: %zu", effects_.size());
     return !effects_.empty();
 }
@@ -78,7 +83,8 @@ void TestEffects::Add(const GUID& type, LONG direction, DWORD durationMs, DWORD 
     DWORD axes[2] = { DIJOFS_X, DIJOFS_Y };
     LONG dir[2] = { direction, 0 };
     DIEFFECT e = { sizeof(e) };
-    e.dwFlags = DIEFF_POLAR | DIEFF_OBJECTOFFSETS;
+    bool perAxis = paramSize == 2 * sizeof(DICONDITION);
+    e.dwFlags = (perAxis ? DIEFF_CARTESIAN : DIEFF_POLAR) | DIEFF_OBJECTOFFSETS;
     e.dwDuration = durationMs * 1000;
     e.dwGain = DI_FFNOMINALMAX;
     e.dwTriggerButton = DIJOFS_BUTTON(button);
