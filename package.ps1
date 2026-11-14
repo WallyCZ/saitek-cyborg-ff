@@ -31,3 +31,8 @@ Copy-Item Install.ps1, README.md $stage
 $zip = Join-Path $PSScriptRoot "dist\SaitekFF-$Version.zip"
 Compress-Archive -Path "$stage\*" -DestinationPath $zip -Force
 Write-Host "Created $zip"
+
+# Test and diagnostic tools: fftest.exe (run it to create fftest-diag.txt for bug reports) and hidraw.exe
+$tools = Join-Path $PSScriptRoot "dist\SaitekFF-$Version-tools.zip"
+Compress-Archive -Path "bin\x64\fftest.exe", "bin\x64\hidraw.exe" -DestinationPath $tools -Force
+Write-Host "Created $tools"

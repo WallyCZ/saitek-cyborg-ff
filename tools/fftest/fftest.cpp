@@ -1,6 +1,10 @@
-// fftest - minimal DirectInput force feedback test tool
-//   fftest            list game controllers, FF capability and supported effects
+// fftest - DirectInput force feedback test tool
+//   fftest [diag]     diagnostics for bug reports, saved to fftest-diag.txt next to the exe
+//   fftest list       list game controllers, FF capability and supported effects
 //   fftest play [ms]  play a constant force on the first FF device (default 2000 ms)
+//   fftest suite      play every effect type with a label, for checking by hand
+//   fftest directions measure where forces from each direction move the stick
+//   fftest state      print axes and buttons
 #define DIRECTINPUT_VERSION 0x0800
 #include <windows.h>
 #include <dinput.h>
@@ -242,10 +246,21 @@ static int DirectionTest()
     return 0;
 }
 
+int Diagnose();  // diag.cpp
+
 int main(int argc, char** argv)
 {
     setvbuf(stdout, nullptr, _IONBF, 0);
     AddVectoredExceptionHandler(1, CrashHandler);
+    // Without arguments (double-clicked) or with "diag": collect diagnostics for a bug report
+    if (argc < 2 || !strcmp(argv[1], "diag")) {
+        int rc = Diagnose();
+        if (argc < 2) {
+            printf("\nPress Enter to close.");
+            getchar();
+        }
+        return rc;
+    }
     HRESULT hr = DirectInput8Create(GetModuleHandleW(nullptr), DIRECTINPUT_VERSION,
                                     IID_IDirectInput8W, (void**)&g_di, nullptr);
     if (FAILED(hr)) { printf("DirectInput8Create failed 0x%08lX\n", hr); return 1; }

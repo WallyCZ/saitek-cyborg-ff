@@ -369,12 +369,16 @@ HRESULT FFDevice::Download(DWORD effectType, LPDWORD handle, LPCDIEFFECT effect,
     Lock lock(lock_);
     if (!hid_.IsOpen())
         return DIERR_NOTACQUIRED;
-    if (!IsSupported(effectType))
+    if (!IsSupported(effectType)) {
+        Log("download of effect type %02lX rejected: the device has no report for it", effectType);
         return DIERR_UNSUPPORTED;
+    }
 
     Effect* existing = *handle ? Find(*handle) : nullptr;
-    if (*handle && !existing)
+    if (*handle && !existing) {
+        Log("download rejected: unknown effect handle %lu", *handle);
         return DIERR_INVALIDPARAM;
+    }
 
     // Work on a copy so a rejected update leaves the effect untouched
     Effect updated = existing ? *existing : Effect{};
@@ -382,7 +386,13 @@ HRESULT FFDevice::Download(DWORD effectType, LPDWORD handle, LPCDIEFFECT effect,
     HRESULT hr = Merge(updated, effect, flags);
     if (SUCCEEDED(hr))
         hr = Validate(updated);
-    if (FAILED(hr) || (flags & DIEP_NODOWNLOAD))
+    if (FAILED(hr)) {
+        Log("download of effect type %02lX rejected: invalid parameters (flags %08lX, %lu axes, %u bytes of type "
+            "specific data) -> %08lX",
+            effectType, flags, updated.axisCount, (unsigned)updated.params.size(), hr);
+        return hr;
+    }
+    if (flags & DIEP_NODOWNLOAD)
         return hr;
 
     Effect* e;

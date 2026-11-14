@@ -75,8 +75,12 @@ If the stick does not center itself after replacing the original Saitek driver, 
 When the original driver shuts down it switches the stick's centering spring off in a way that only
 reconnecting the stick undoes.
 
-Set `HKCU\Software\SaitekFF` `Debug` (DWORD) to `1` and the driver logs to `%TEMP%\SaitekFF.log` and to the
-debugger output (DebugView). Please attach the log when reporting a problem.
+When reporting a problem, please attach:
+- `fftest-diag.txt`: download `SaitekFF-<version>-tools.zip` from Releases, extract it and run `fftest.exe` with
+  the stick connected and no game running. It saves what the driver needs to know about the stick (its HID
+  report layout and what DirectInput accepts) next to the exe. It only loads test effects, it does not play them.
+- the driver log: set `HKCU\Software\SaitekFF` `Debug` (DWORD) to `1`, reproduce the problem and attach
+  `%TEMP%\SaitekFF.log` (also written to the debugger output, for DebugView).
 
 ## Other Immersion devices
 Some other force feedback devices from the same era use Immersion's driver too, but need its kernel driver to

@@ -16,7 +16,8 @@ namespace {
 class TestEffects {
 public:
     ~TestEffects() { Stop(); }
-    bool Start(HWND window);
+    enum Result { Armed, NotAvailable, Refused };
+    Result Start(HWND window);
     void Stop();
     bool Active() const { return device_ != nullptr; }
 
@@ -43,23 +44,27 @@ BOOL CALLBACK TestEffects::FindStick(LPCDIDEVICEINSTANCEW instance, LPVOID conte
     return DIENUM_CONTINUE;
 }
 
-bool TestEffects::Start(HWND window)
+TestEffects::Result TestEffects::Start(HWND window)
 {
     Stop();
     GUID stick = GUID_NULL;
-    if (FAILED(DirectInput8Create(GetModuleHandleW(nullptr), DIRECTINPUT_VERSION, IID_IDirectInput8W,
-                                  reinterpret_cast<void**>(&di_), nullptr)) ||
-        FAILED(di_->EnumDevices(DI8DEVCLASS_GAMECTRL, FindStick, &stick, DIEDFL_ATTACHEDONLY | DIEDFL_FORCEFEEDBACK)) ||
-        stick == GUID_NULL || FAILED(di_->CreateDevice(stick, &device_, nullptr))) {
-        Stop();
-        return false;
-    }
+    HRESULT hr = DirectInput8Create(GetModuleHandleW(nullptr), DIRECTINPUT_VERSION, IID_IDirectInput8W,
+                                    reinterpret_cast<void**>(&di_), nullptr);
+    if (SUCCEEDED(hr))
+        hr = di_->EnumDevices(DI8DEVCLASS_GAMECTRL, FindStick, &stick, DIEDFL_ATTACHEDONLY | DIEDFL_FORCEFEEDBACK);
+    if (SUCCEEDED(hr))
+        hr = stick == GUID_NULL ? DIERR_DEVICENOTREG : di_->CreateDevice(stick, &device_, nullptr);
     // Force feedback needs exclusive access, which fails while a game holds the stick
-    if (FAILED(device_->SetDataFormat(&c_dfDIJoystick)) ||
-        FAILED(device_->SetCooperativeLevel(GetAncestor(window, GA_ROOT), DISCL_EXCLUSIVE | DISCL_BACKGROUND)) ||
-        FAILED(device_->Acquire())) {
+    if (SUCCEEDED(hr))
+        hr = device_->SetDataFormat(&c_dfDIJoystick);
+    if (SUCCEEDED(hr))
+        hr = device_->SetCooperativeLevel(GetAncestor(window, GA_ROOT), DISCL_EXCLUSIVE | DISCL_BACKGROUND);
+    if (SUCCEEDED(hr))
+        hr = device_->Acquire();
+    if (FAILED(hr)) {
+        Log("test effects: stick not available for force feedback (%08lX)", hr);
         Stop();
-        return false;
+        return NotAvailable;
     }
     DICONSTANTFORCE kick = { 7000 }, blast = { 10000 };
     DIPERIODIC engine = { 3500, 0, 0, 40 * 1000 }, road = { 6000, 0, 0, 250 * 1000 };
@@ -74,7 +79,11 @@ bool TestEffects::Start(HWND window)
     Add(GUID_Spring, 0, 3000, 4, INFINITE, spring, sizeof(spring));                       // spring
     Add(GUID_Damper, 0, 3000, 5, INFINITE, damper, sizeof(damper));                       // damper
     Log("test effects armed: %zu", effects_.size());
-    return !effects_.empty();
+    if (effects_.empty()) {
+        Stop();
+        return Refused;
+    }
+    return Armed;
 }
 
 void TestEffects::Add(const GUID& type, LONG direction, DWORD durationMs, DWORD button, DWORD repeatMs, void* params,
@@ -96,8 +105,11 @@ void TestEffects::Add(const GUID& type, LONG direction, DWORD durationMs, DWORD 
     e.cbTypeSpecificParams = paramSize;
     e.lpvTypeSpecificParams = params;
     IDirectInputEffect* effect;
-    if (SUCCEEDED(device_->CreateEffect(type, &e, &effect, nullptr)))
+    HRESULT hr = device_->CreateEffect(type, &e, &effect, nullptr);
+    if (SUCCEEDED(hr))
         effects_.push_back(effect);
+    else
+        Log("test effect for button %lu refused by DirectInput (%08lX)", button + 1, hr);
 }
 
 void TestEffects::Stop()
@@ -190,9 +202,13 @@ INT_PTR CALLBACK PageProc(HWND page, UINT message, WPARAM wParam, LPARAM lParam)
         } else if (LOWORD(wParam) == IDC_TEST_EFFECTS && HIWORD(wParam) == BN_CLICKED) {
             if (IsDlgButtonChecked(page, IDC_TEST_EFFECTS) != BST_CHECKED) {
                 g_test.Stop();
-            } else if (!g_test.Start(page)) {
+            } else if (auto result = g_test.Start(page); result != TestEffects::Armed) {
                 CheckDlgButton(page, IDC_TEST_EFFECTS, BST_UNCHECKED);
-                MessageBoxW(page, L"The stick is not available for force feedback. Close any game that uses it and try again.",
+                MessageBoxW(page,
+                            result == TestEffects::NotAvailable
+                                ? L"The stick is not available for force feedback. Close any game that uses it and try again."
+                                : L"The stick refused the test effects. Please report this at "
+                                  L"https://github.com/WallyCZ/saitek-cyborg-ff/issues with the debug log (see the README).",
                             L"Force Feedback", MB_ICONWARNING);
             }
         }

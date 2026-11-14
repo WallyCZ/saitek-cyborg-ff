@@ -31,4 +31,9 @@ for /f "tokens=1-4 delims=." %%a in ("%VERSION%.0.0.0") do (
 )
 rc /nologo /i "%OBJ%" /fo"%OBJ%\SaitekFF.res" "%~dp0src\SaitekFF.rc" || exit /b 1
 link /nologo /DLL /DEF:"%~dp0src\SaitekFF.def" /OUT:"%OUT%\SaitekFF.dll" "%OBJ%\*.obj" "%OBJ%\SaitekFF.res" hid.lib setupapi.lib dinput8.lib dxguid.lib cfgmgr32.lib newdev.lib msi.lib ole32.lib advapi32.lib user32.lib || exit /b 1
+rem Test and diagnostic tools (64-bit only)
+if not "%1"=="x64" exit /b 0
+if not exist "%OBJ%\tools" mkdir "%OBJ%\tools"
+cl /nologo /O2 /MT /W3 /EHsc /std:c++17 /Fo"%OBJ%\tools\\" /Fe"%OUT%\fftest.exe" "%~dp0tools\fftest\*.cpp" user32.lib || exit /b 1
+cl /nologo /O2 /MT /W3 /EHsc /std:c++17 /D_CRT_SECURE_NO_WARNINGS /Fo"%OBJ%\tools\\" /Fe"%OUT%\hidraw.exe" "%~dp0tools\hidraw\hidraw.cpp" || exit /b 1
 exit /b 0
