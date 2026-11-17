@@ -7,6 +7,7 @@
 #include <setupapi.h>
 #include <hidsdi.h>
 #include <stdarg.h>
+#include <locale.h>
 #include <stdio.h>
 #include <string>
 #include <vector>
@@ -359,6 +360,10 @@ int Diagnose()
     GetModuleFileNameW(nullptr, path, MAX_PATH);
     std::wstring file = path;
     file = file.substr(0, file.find_last_of(L'\\') + 1) + L"fftest-diag.txt";
+    // Device and object names are localized: write UTF-8, otherwise the C runtime stops at the first
+    // character outside ASCII
+    setlocale(LC_ALL, ".UTF8");
+    SetConsoleOutputCP(CP_UTF8);
     if (_wfopen_s(&g_file, file.c_str(), L"w") != 0)
         g_file = nullptr;
 
