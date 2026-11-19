@@ -66,10 +66,13 @@ void RegistryValue(HKEY root, const wchar_t* key, const wchar_t* name, const cha
 {
     wchar_t value[512];
     DWORD size = sizeof(value);
-    if (RegGetValueW(root, key, name, RRF_RT_REG_SZ, nullptr, value, &size) == ERROR_SUCCESS)
+    LSTATUS rc = RegGetValueW(root, key, name, RRF_RT_REG_SZ, nullptr, value, &size);
+    if (rc == ERROR_SUCCESS)
         Out("  %s: %ls\n", label, value);
-    else
+    else if (rc == ERROR_FILE_NOT_FOUND)
         Out("  %s: (none)\n", label);
+    else
+        Out("  %s: cannot read (error %ld)\n", label, rc);
 }
 
 void FileVersion(const wchar_t* path)
