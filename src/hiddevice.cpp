@@ -3,51 +3,51 @@
 
 #pragma comment(lib, "hid.lib")
 
-OutputReport::OutputReport(const HidDevice& device, UCHAR reportId)
-    : device_(device), data_(device.Caps().OutputReportByteLength)
+OutputReport::OutputReport(const HidDevice& device, UCHAR reportId, HIDP_REPORT_TYPE type)
+    : device_(device), type_(type),
+      data_(type == HidP_Feature ? device.Caps().FeatureReportByteLength : device.Caps().OutputReportByteLength)
 {
-    if (!reportId) {
+    if (!reportId || data_.empty()) {
         ok_ = false;
         return;
     }
     // The parser refuses to initialize the vendor report (0x40) although it sets its fields fine and the stick
     // accepts it; a zeroed report with the ID works for it
-    if (HidP_InitializeReportForID(HidP_Output, reportId, device.Preparsed(), (PCHAR)data_.data(), (ULONG)data_.size())
+    if (HidP_InitializeReportForID(type_, reportId, device.Preparsed(), (PCHAR)data_.data(), (ULONG)data_.size())
         != HIDP_STATUS_SUCCESS)
         data_[0] = reportId;
 }
 
+bool OutputReport::Check(NTSTATUS status, const char* what, USAGE page, USAGE usage, LONG value)
+{
+    // A field this stick's report does not have: nothing to set
+    if (status == HIDP_STATUS_SUCCESS || status == HIDP_STATUS_USAGE_NOT_FOUND)
+        return true;
+    Log("report %02X: cannot set %s %02X:%02X = %ld (0x%08lX)", data_[0], what, page, usage, value, status);
+    ok_ = false;
+    return false;
+}
+
 OutputReport& OutputReport::Value(USAGE page, USAGE usage, ULONG raw)
 {
-    NTSTATUS status = HidP_SetUsageValue(HidP_Output, page, 0, usage, raw, device_.Preparsed(), (PCHAR)data_.data(),
-                                         (ULONG)data_.size());
-    if (status != HIDP_STATUS_SUCCESS) {
-        Log("report %02X: cannot set value %02X:%02X = %lu (0x%08lX)", data_[0], page, usage, raw, status);
-        ok_ = false;
-    }
+    Check(HidP_SetUsageValue(type_, page, 0, usage, raw, device_.Preparsed(), (PCHAR)data_.data(), (ULONG)data_.size()),
+          "value", page, usage, (LONG)raw);
     return *this;
 }
 
 OutputReport& OutputReport::Scaled(USAGE page, USAGE usage, LONG physical)
 {
-    NTSTATUS status = HidP_SetScaledUsageValue(HidP_Output, page, 0, usage, physical, device_.Preparsed(),
-                                               (PCHAR)data_.data(), (ULONG)data_.size());
-    if (status != HIDP_STATUS_SUCCESS) {
-        Log("report %02X: cannot set scaled %02X:%02X = %ld (0x%08lX)", data_[0], page, usage, physical, status);
-        ok_ = false;
-    }
+    Check(HidP_SetScaledUsageValue(type_, page, 0, usage, physical, device_.Preparsed(), (PCHAR)data_.data(),
+                                   (ULONG)data_.size()),
+          "scaled", page, usage, physical);
     return *this;
 }
 
 OutputReport& OutputReport::Usage(USAGE page, USAGE usage)
 {
     ULONG count = 1;
-    NTSTATUS status = HidP_SetUsages(HidP_Output, page, 0, &usage, &count, device_.Preparsed(), (PCHAR)data_.data(),
-                                     (ULONG)data_.size());
-    if (status != HIDP_STATUS_SUCCESS) {
-        Log("report %02X: cannot set usage %02X:%02X (0x%08lX)", data_[0], page, usage, status);
-        ok_ = false;
-    }
+    Check(HidP_SetUsages(type_, page, 0, &usage, &count, device_.Preparsed(), (PCHAR)data_.data(), (ULONG)data_.size()),
+          "usage", page, usage, 0);
     return *this;
 }
 
@@ -81,11 +81,14 @@ bool HidDevice::Open(const wchar_t* path)
     ids.vendor = FindReportId(HidP_Output, usage::PageVendor, usage::VendorValue);
     ids.pool = FindReportId(HidP_Feature, usage::PagePid, usage::RamPoolSize);
     ids.state = FindReportId(HidP_Input, usage::PagePid, usage::EffectPlaying);
+    ids.createEffect = FindReportInCollection(HidP_Feature, usage::CreateNewEffectReport);
+    ids.blockLoad = FindReportId(HidP_Feature, usage::PagePid, usage::BlockLoadSuccess);
+    ids.blockFree = FindReportInCollection(HidP_Output, usage::BlockFreeReport);
     Log("opened %04X:%04X v%04X, reports: effect %02X env %02X cond %02X per %02X const %02X op %02X ctl %02X "
-        "gain %02X vendor %02X pool %02X state %02X",
+        "gain %02X vendor %02X pool %02X state %02X create %02X load %02X free %02X",
         attributes_.VendorID, attributes_.ProductID, attributes_.VersionNumber, ids.setEffect, ids.envelope,
         ids.condition, ids.periodic, ids.constant, ids.effectOperation, ids.deviceControl, ids.deviceGain, ids.vendor,
-        ids.pool, ids.state);
+        ids.pool, ids.state, ids.createEffect, ids.blockLoad, ids.blockFree);
     if (!ids.setEffect || !ids.effectOperation || !ids.deviceControl) {
         Log("device has no usable force feedback reports");
         Close();
@@ -165,10 +168,55 @@ bool HidDevice::LogicalRange(HIDP_REPORT_TYPE type, USAGE page, USAGE usage, LON
     return true;
 }
 
+UCHAR HidDevice::FindReportInCollection(HIDP_REPORT_TYPE type, USAGE collectionUsage) const
+{
+    ULONG count = caps_.NumberLinkCollectionNodes;
+    std::vector<HIDP_LINK_COLLECTION_NODE> nodes(count);
+    if (!count || HidP_GetLinkCollectionNodes(nodes.data(), &count, preparsed_) != HIDP_STATUS_SUCCESS)
+        return 0;
+    // Any field in the collection or in one of its children belongs to the report
+    auto inCollection = [&](USHORT link) {
+        for (USHORT i = link; i < count; i = nodes[i].Parent) {
+            if (nodes[i].LinkUsagePage == usage::PagePid && nodes[i].LinkUsage == collectionUsage)
+                return true;
+            if (i == 0)
+                break;
+        }
+        return false;
+    };
+    USHORT nv = type == HidP_Input ? caps_.NumberInputValueCaps : type == HidP_Output ? caps_.NumberOutputValueCaps
+                                                                                     : caps_.NumberFeatureValueCaps;
+    std::vector<HIDP_VALUE_CAPS> values(nv ? nv : 1);
+    if (nv && HidP_GetValueCaps(type, values.data(), &nv, preparsed_) == HIDP_STATUS_SUCCESS)
+        for (USHORT i = 0; i < nv; i++)
+            if (inCollection(values[i].LinkCollection))
+                return values[i].ReportID;
+    USHORT nb = type == HidP_Input ? caps_.NumberInputButtonCaps : type == HidP_Output ? caps_.NumberOutputButtonCaps
+                                                                                      : caps_.NumberFeatureButtonCaps;
+    std::vector<HIDP_BUTTON_CAPS> buttons(nb ? nb : 1);
+    if (nb && HidP_GetButtonCaps(type, buttons.data(), &nb, preparsed_) == HIDP_STATUS_SUCCESS)
+        for (USHORT i = 0; i < nb; i++)
+            if (inCollection(buttons[i].LinkCollection))
+                return buttons[i].ReportID;
+    return 0;
+}
+
+bool HidDevice::HasUsage(HIDP_REPORT_TYPE type, UCHAR reportId, USAGE page, USAGE usage) const
+{
+    return reportId && FindReportId(type, page, usage) == reportId;
+}
+
 bool HidDevice::Send(const OutputReport& report)
 {
     if (!report.Ok() || writeHandle_ == INVALID_HANDLE_VALUE)
         return false;
+    if (report.Type() == HidP_Feature) {
+        if (!HidD_SetFeature(writeHandle_, (PVOID)report.Bytes().data(), (ULONG)report.Bytes().size())) {
+            Log("set feature %02X failed (%lu)", report.Bytes()[0], GetLastError());
+            return false;
+        }
+        return true;
+    }
     DWORD written = 0;
     if (!WriteFile(writeHandle_, report.Bytes().data(), (DWORD)report.Bytes().size(), &written, nullptr)) {
         Log("write of report %02X failed (%lu)", report.Bytes()[0], GetLastError());

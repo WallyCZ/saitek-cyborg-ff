@@ -119,8 +119,12 @@ HRESULT FFDevice::Open(const wchar_t* path)
         maxEffects = std::min(maxEffects, (int)max + 1);
     maxEffects = std::min(maxEffects, HidDevice::MaxSlots);
 
-    slots_.assign(maxEffects, nullptr);
+    // A device managed stick hands out its own effect indexes, so the table covers every index it may use
+    deviceSlots_ = maxEffects;
+    slots_.assign(hid_.DeviceManaged() ? HidDevice::MaxSlots : maxEffects, nullptr);
     memory_.Reset(ramSize, alignment);
+    if (hid_.DeviceManaged())
+        Log("device managed effect memory: up to %d effects", maxEffects);
     settings_ = Settings::Load();
     session_ = CreateEventW(nullptr, TRUE, FALSE, SessionEventName);
     stopWatcher_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
@@ -263,12 +267,44 @@ HRESULT FFDevice::GetState(LPDIDEVICESTATE state)
     s |= hid_.actuatorPower || !hid_.stateReceived ? DIGFFS_POWERON : DIGFFS_POWEROFF;
     s |= hid_.safetySwitch ? DIGFFS_SAFETYSWITCHON : DIGFFS_SAFETYSWITCHOFF;
     state->dwState = s;
-    state->dwLoad = memory_.Size() ? memory_.Used() * 100 / memory_.Size() : 0;
+    if (hid_.DeviceManaged()) {
+        int resident = (int)std::count_if(slots_.begin(), slots_.end(), [](Effect* e) { return e != nullptr; });
+        state->dwLoad = deviceSlots_ ? std::min(resident * 100 / deviceSlots_, 100) : 0;
+    } else {
+        state->dwLoad = memory_.Size() ? memory_.Used() * 100 / memory_.Size() : 0;
+    }
     return DI_OK;
+}
+
+USAGE FFDevice::DeviceType(const Effect& e) const
+{
+    // The sticks have no inertia and friction effects; like the original driver, play them as damper
+    if (e.type == usage::Inertia || e.type == usage::Friction)
+        return usage::Damper;
+    // ... and no ramp: it is played as one sawtooth period spanning the duration
+    if (e.type == usage::Ramp && e.params.size() == sizeof(DIRAMPFORCE)) {
+        const DIRAMPFORCE* ramp = reinterpret_cast<const DIRAMPFORCE*>(e.params.data());
+        const bool invert = e.axisCount == 1 && (e.coords & DIEFF_CARTESIAN) && e.direction[0] < 0;
+        return (ramp->lStart < ramp->lEnd) != invert ? usage::SawtoothUp : usage::SawtoothDown;
+    }
+    return (USAGE)e.type;
 }
 
 bool FFDevice::IsSupported(DWORD type) const
 {
+    // A device managed stick lists the effect types it can create
+    if (hid_.DeviceManaged()) {
+        auto creates = [&](USAGE u) { return hid_.HasUsage(HidP_Feature, hid_.ids.createEffect, usage::PagePid, u); };
+        switch (type) {
+        case usage::Ramp:
+            return creates(usage::SawtoothUp) && creates(usage::SawtoothDown);
+        case usage::Inertia:
+        case usage::Friction:
+            return creates(usage::Damper);
+        default:
+            return creates((USAGE)type);
+        }
+    }
     switch (type) {
     case usage::ConstantForce:
         return hid_.ids.constant != 0;
@@ -501,11 +537,57 @@ bool FFDevice::IsPlaying(Effect& e)
     return GetTickCount() - e.startTick <= total + 50;
 }
 
+int FFDevice::CreateDeviceEffect(USAGE type)
+{
+    OutputReport create(hid_, hid_.ids.createEffect, HidP_Feature);
+    create.Usage(usage::PagePid, type);
+    if (!hid_.Send(create))
+        return CreateError;
+    std::vector<BYTE> load;
+    if (!hid_.GetFeature(hid_.ids.blockLoad, load)) {
+        Log("block load report not readable (%lu)", GetLastError());
+        return CreateError;
+    }
+    USAGE status[8];
+    ULONG count = ARRAYSIZE(status), index = 0;
+    HidP_GetUsages(HidP_Feature, usage::PagePid, 0, status, &count, hid_.Preparsed(), (PCHAR)load.data(), (ULONG)load.size());
+    HidP_GetUsageValue(HidP_Feature, usage::PagePid, 0, usage::EffectBlockIndex, &index, hid_.Preparsed(),
+                       (PCHAR)load.data(), (ULONG)load.size());
+    for (ULONG i = 0; i < count; i++) {
+        if (status[i] == usage::BlockLoadSuccess) {
+            if (index >= slots_.size() || slots_[index]) {
+                Log("stick returned effect index %lu, which is out of range or in use", index);
+                return CreateError;
+            }
+            return (int)index;
+        }
+        if (status[i] == usage::BlockLoadFull)
+            return CreateFull;
+    }
+    Log("stick could not create effect type %02X (block load %02X %02X %02X)", type, load.size() > 1 ? load[1] : 0,
+        load.size() > 2 ? load[2] : 0, load.size() > 3 ? load[3] : 0);
+    return CreateError;
+}
+
 bool FFDevice::MakeResident(Effect& e)
 {
     e.lastUse = ++useCounter_;
     if (e.slot >= 0)
         return true;
+    if (hid_.DeviceManaged()) {
+        for (;;) {
+            int index = CreateDeviceEffect(DeviceType(e));
+            if (index >= 0) {
+                e.slot = index;
+                slots_[index] = &e;
+                for (auto& s : e.sent)
+                    s.clear();
+                return true;
+            }
+            if (index == CreateError || !Evict(&e))
+                return false;
+        }
+    }
     for (;;) {
         auto free = std::find(slots_.begin(), slots_.end(), nullptr);
         if (free != slots_.end()) {
@@ -547,8 +629,13 @@ void FFDevice::Unload(Effect& e)
         return;
     if (IsPlaying(e))
         Operation(e.slot, usage::OpStop, 0);
-    // An effect armed on a fire button would keep reacting to the button: disarm it
-    if (e.triggerButton != DIEB_NOTRIGGER && !e.sent[SentEffect].empty()) {
+    if (hid_.DeviceManaged()) {
+        // Gives the slot back to the stick, which forgets the effect (and its trigger button)
+        OutputReport free(hid_, hid_.ids.blockFree);
+        free.Value(usage::PagePid, usage::EffectBlockIndex, e.slot);
+        hid_.Send(free);
+    } else if (e.triggerButton != DIEB_NOTRIGGER && !e.sent[SentEffect].empty()) {
+        // An effect armed on a fire button would keep reacting to the button: disarm it
         DWORD trigger = e.triggerButton;
         e.triggerButton = DIEB_NOTRIGGER;
         SendEffect(e);
@@ -582,6 +669,15 @@ bool FFDevice::SendIfChanged(Effect& e, Sent which, const OutputReport& report)
     return true;
 }
 
+// Points a parameter report at the effect: by its parameter block offset in the stick's memory, or on a device
+// managed stick by the effect index
+OutputReport& FFDevice::Block(OutputReport& r, const Effect& e, int block) const
+{
+    if (hid_.DeviceManaged())
+        return r.Value(usage::PagePid, usage::EffectBlockIndex, e.slot);
+    return r.Value(usage::PagePid, usage::ParamBlockOffset, e.block[block]);
+}
+
 HRESULT FFDevice::SendEffect(Effect& e)
 {
     // Effect gain from the game times the strength settings from the Game Controllers panel
@@ -605,14 +701,11 @@ HRESULT FFDevice::SendEffect(Effect& e)
     // A single axis effect with a negative cartesian direction pushes the other way
     const bool invert = e.axisCount == 1 && (e.coords & DIEFF_CARTESIAN) && e.direction[0] < 0;
     bool directional = twoAxes;
-    USAGE deviceType = (USAGE)e.type;
+    const USAGE deviceType = DeviceType(e);
     ULONG envelopeOffset = 0xFFFF;  // "no envelope"
     bool ok = true;
 
     if (IsCondition(e.type)) {
-        // The stick has no inertia and friction effects; like the original driver, play them as damper
-        if (e.type == usage::Inertia || e.type == usage::Friction)
-            deviceType = usage::Damper;
         const DICONDITION* given = reinterpret_cast<const DICONDITION*>(e.params.data());
         size_t count = e.params.size() / sizeof(DICONDITION);
         DICONDITION cond[2] = {};
@@ -630,7 +723,7 @@ HRESULT FFDevice::SendEffect(Effect& e)
         for (int i = 0; i < 2; i++) {
             const DICONDITION& c = cond[i];
             OutputReport r(hid_, hid_.ids.condition);
-            r.Value(usage::PagePid, usage::ParamBlockOffset, e.block[i])
+            Block(r, e, i)
                 .Scaled(usage::PagePid, usage::CpOffset, Clamp(c.lOffset, -Nominal, Nominal))
                 .Scaled(usage::PagePid, usage::PositiveCoefficient, Clamp(scale(c.lPositiveCoefficient), -Nominal, Nominal))
                 .Scaled(usage::PagePid, usage::NegativeCoefficient, Clamp(scale(c.lNegativeCoefficient), -Nominal, Nominal))
@@ -653,7 +746,7 @@ HRESULT FFDevice::SendEffect(Effect& e)
                 direction = (direction + 18000) % 36000;
             }
             OutputReport r(hid_, hid_.ids.constant);
-            r.Value(usage::PagePid, usage::ParamBlockOffset, e.block[0])
+            Block(r, e, 0)
                 .Scaled(usage::PagePid, usage::Magnitude, magnitude);
             ok &= SendIfChanged(e, SentParam0, r);
         } else {
@@ -667,7 +760,6 @@ HRESULT FFDevice::SendEffect(Effect& e)
                     start = -start;
                     end = -end;
                 }
-                deviceType = start < end ? usage::SawtoothUp : usage::SawtoothDown;
                 magnitude = labs(start - end) / 2;
                 offset = (start + end) / 2;
                 period = Ms(e.duration, 10000);
@@ -681,7 +773,7 @@ HRESULT FFDevice::SendEffect(Effect& e)
             magnitude = Clamp(magnitude, 0, Nominal);
             offset = Clamp(offset, -(Nominal - magnitude), Nominal - magnitude);
             OutputReport r(hid_, hid_.ids.periodic);
-            r.Value(usage::PagePid, usage::ParamBlockOffset, e.block[0])
+            Block(r, e, 0)
                 .Scaled(usage::PagePid, usage::Magnitude, magnitude)
                 .Scaled(usage::PagePid, usage::Offset, offset)
                 .Scaled(usage::PagePid, usage::Phase, phase % 36000 / 100)
@@ -690,13 +782,22 @@ HRESULT FFDevice::SendEffect(Effect& e)
         }
         if (e.hasEnvelope && (e.envelope.dwAttackTime || e.envelope.dwFadeTime) && hid_.ids.envelope) {
             OutputReport r(hid_, hid_.ids.envelope);
-            r.Value(usage::PagePid, usage::ParamBlockOffset, e.block[1])
+            Block(r, e, 1)
                 .Value(usage::PagePid, usage::AttackTime, Ms(e.envelope.dwAttackTime, 10000))
                 .Scaled(usage::PagePid, usage::AttackLevel, Clamp(scale((LONG)e.envelope.dwAttackLevel), 0, Nominal))
                 .Value(usage::PagePid, usage::FadeTime, Ms(e.envelope.dwFadeTime, 10000))
                 .Scaled(usage::PagePid, usage::FadeLevel, Clamp(scale((LONG)e.envelope.dwFadeLevel), 0, Nominal));
             ok &= SendIfChanged(e, SentParam1, r);
             envelopeOffset = e.block[1];
+        } else if (hid_.DeviceManaged() && !e.sent[SentParam1].empty() && hid_.ids.envelope) {
+            // The stick keeps an effect's envelope until told otherwise: clear the one sent before
+            OutputReport r(hid_, hid_.ids.envelope);
+            Block(r, e, 1)
+                .Value(usage::PagePid, usage::AttackTime, 0)
+                .Scaled(usage::PagePid, usage::AttackLevel, 0)
+                .Value(usage::PagePid, usage::FadeTime, 0)
+                .Scaled(usage::PagePid, usage::FadeLevel, 0);
+            ok &= SendIfChanged(e, SentParam1, r);
         }
     }
 

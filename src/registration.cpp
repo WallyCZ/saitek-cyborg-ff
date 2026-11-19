@@ -125,9 +125,22 @@ std::wstring Sibling32BitModule()
     return L"";
 }
 
-LSTATUS RegisterDevice(HKEY root, const wchar_t* device)
+// Axes the 3D Rumble Force's descriptor does not mark as force feedback capable. Same values as the original
+// Saitek INFs give the X and Y axes of their sticks.
+struct AxisInfo {
+    const wchar_t* key;
+    const wchar_t* name;
+    DIOBJECTATTRIBUTES attributes;  // DIDOI_FFACTUATOR | DIDOI_ASPECTPOSITION | DIDOI_POLLED, usage page, usage
+    DIFFOBJECTATTRIBUTES ffAttributes;
+};
+const AxisInfo g_rumbleAxes[] = {
+    { L"Axes\\0", L"X Axis", { 0x8101, 0x01, 0x30 }, { 10, 256 } },
+    { L"Axes\\1", L"Y Axis", { 0x8101, 0x01, 0x31 }, { 0, 256 } },
+};
+
+LSTATUS RegisterDevice(HKEY root, const SupportedDevice& device)
 {
-    std::wstring oem = std::wstring(OemKey) + device, ffPath = oem + L"\\OEMForceFeedback";
+    std::wstring oem = std::wstring(OemKey) + device.hardwareId, ffPath = oem + L"\\OEMForceFeedback";
     RegDeleteTreeW(root, ffPath.c_str());
 
     HKEY key;
@@ -141,6 +154,18 @@ LSTATUS RegisterDevice(HKEY root, const wchar_t* device)
         const BYTE oemData[] = { 0x03, 0x00, 0x08, 0x10, 0x0C, 0x00, 0x00, 0x00 };  // JOYREGHWSETTINGS: flags, 12 buttons
         RegSetValueExW(key, L"OEMData", 0, REG_BINARY, oemData, sizeof(oemData));
     }
+    if (device.rumble) {
+        for (const auto& axis : g_rumbleAxes) {
+            HKEY axisKey;
+            if (RegCreateKeyExW(key, axis.key, 0, nullptr, 0, KEY_WRITE, nullptr, &axisKey, nullptr) == ERROR_SUCCESS) {
+                SetString(axisKey, nullptr, axis.name);
+                RegSetValueExW(axisKey, L"Attributes", 0, REG_BINARY, (const BYTE*)&axis.attributes, sizeof(axis.attributes));
+                RegSetValueExW(axisKey, L"FFAttributes", 0, REG_BINARY, (const BYTE*)&axis.ffAttributes,
+                               sizeof(axis.ffAttributes));
+                RegCloseKey(axisKey);
+            }
+        }
+    }
     RegCloseKey(key);
 
     HKEY ff;
@@ -151,6 +176,9 @@ LSTATUS RegisterDevice(HKEY root, const wchar_t* device)
     SetString(ff, L"CLSID", GuidString(CLSID_SaitekFF).c_str());
     RegSetValueExW(ff, L"Attributes", 0, REG_BINARY, (const BYTE*)&attributes, sizeof(attributes));
     for (const auto& effect : g_effects) {
+        // A rumble motor has no spring or damper
+        if (device.rumble && DIEFT_GETTYPE(effect.attributes.effectType) == DIEFT_CONDITION)
+            continue;
         std::wstring sub = std::wstring(L"Effects\\") + effect.guid;
         if (RegCreateKeyExW(ff, sub.c_str(), 0, nullptr, 0, KEY_WRITE, nullptr, &key, nullptr) == ERROR_SUCCESS) {
             SetString(key, nullptr, effect.name);
@@ -172,13 +200,17 @@ bool ValueIs(HKEY root, const wchar_t* path, const wchar_t* name, REFGUID guid)
 }
 
 // Removes our registration for one stick (only the parts that still point to this driver)
-void UnregisterDevice(HKEY root, const wchar_t* device)
+void UnregisterDevice(HKEY root, const SupportedDevice& device)
 {
-    std::wstring oem = std::wstring(OemKey) + device, ffPath = oem + L"\\OEMForceFeedback";
+    std::wstring oem = std::wstring(OemKey) + device.hardwareId, ffPath = oem + L"\\OEMForceFeedback";
     if (ValueIs(root, ffPath.c_str(), L"CLSID", CLSID_SaitekFF))
         RegDeleteTreeW(root, ffPath.c_str());
-    if (ValueIs(root, oem.c_str(), L"ConfigCLSID", CLSID_SaitekFFConfig))
+    if (ValueIs(root, oem.c_str(), L"ConfigCLSID", CLSID_SaitekFFConfig)) {
         RegDeleteKeyValueW(root, oem.c_str(), L"ConfigCLSID");
+        if (device.rumble)
+            for (const auto& axis : g_rumbleAxes)
+                RegDeleteTreeW(root, (oem + L"\\" + axis.key).c_str());
+    }
 }
 
 // Reads an INF file (UTF-16 or ANSI) and checks whether it installs one of the supported sticks
@@ -240,7 +272,7 @@ void UnregisterClasses(HKEY root)
 HRESULT RegisterDevices(HKEY root)
 {
     for (const auto& device : g_devices) {
-        LSTATUS rc = RegisterDevice(root, device.hardwareId);
+        LSTATUS rc = RegisterDevice(root, device);
         if (rc != ERROR_SUCCESS)
             return HRESULT_FROM_WIN32(rc);
     }
@@ -250,7 +282,7 @@ HRESULT RegisterDevices(HKEY root)
 void UnregisterDevices(HKEY root)
 {
     for (const auto& device : g_devices)
-        UnregisterDevice(root, device.hardwareId);
+        UnregisterDevice(root, device);
 }
 
 void RenameDevices()

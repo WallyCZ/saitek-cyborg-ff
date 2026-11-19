@@ -28,6 +28,9 @@ constexpr USAGE EffectPlaying = 0x94;
 constexpr USAGE EnableActuators = 0x97, DisableActuators = 0x98, StopAllEffects = 0x99, DeviceReset = 0x9A,
                 DevicePause = 0x9B, DeviceContinue = 0x9C;
 constexpr USAGE DevicePaused = 0x9F, ActuatorsEnabled = 0xA0, SafetySwitch = 0xA4, ActuatorPower = 0xA6;
+// Device managed effect memory (3D Rumble Force): the stick assigns effect slots itself
+constexpr USAGE CreateNewEffectReport = 0xAB, BlockFreeReport = 0x90;
+constexpr USAGE BlockLoadSuccess = 0x8C, BlockLoadFull = 0x8D, BlockLoadError = 0x8E;
 
 // Saitek/Immersion vendor control report: an array selecting a sub-command plus a 16-bit value.
 // The sub-command numbers match the I-FORCE protocol. Sub-command 3 sets the stick's own centering spring:
@@ -38,18 +41,25 @@ constexpr USAGE VendorCentering = VendorCommandBase + 3;
 
 class HidDevice;
 
-// An output report assembled with the HidP_* API, so field positions come from the device's own descriptor
+// An output (or feature) report assembled with the HidP_* API, so field positions come from the device's own
+// descriptor. Fields the report does not have are skipped: the sticks differ in which fields they offer
+// (the 3D Rumble Force's Set Effect report has no type, axes or direction, for example).
 class OutputReport {
 public:
-    OutputReport(const HidDevice& device, UCHAR reportId);
+    OutputReport(const HidDevice& device, UCHAR reportId, HIDP_REPORT_TYPE type = HidP_Output);
     OutputReport& Value(USAGE page, USAGE usage, ULONG raw);
     OutputReport& Scaled(USAGE page, USAGE usage, LONG physical);
     OutputReport& Usage(USAGE page, USAGE usage);
     bool Ok() const { return ok_; }
     const std::vector<BYTE>& Bytes() const { return data_; }
 
+    HIDP_REPORT_TYPE Type() const { return type_; }
+
 private:
+    bool Check(NTSTATUS status, const char* what, USAGE page, USAGE usage, LONG value);
+
     const HidDevice& device_;
+    HIDP_REPORT_TYPE type_;
     std::vector<BYTE> data_;
     bool ok_ = true;
 };
@@ -67,16 +77,19 @@ public:
     void Close();
     bool IsOpen() const { return writeHandle_ != INVALID_HANDLE_VALUE; }
 
-    bool Send(const OutputReport& report);
+    bool Send(const OutputReport& report);  // output reports with WriteFile, feature reports with HidD_SetFeature
     bool SendVendor(USAGE command, USHORT value);
     bool SetCentering(int strength) { return SendVendor(usage::VendorCentering, (USHORT)strength); }  // 0..127
     bool GetFeature(UCHAR reportId, std::vector<BYTE>& data);
 
-    // Report IDs, found by a usage that only that report contains
+    // Report IDs, found by a usage that only that report contains. createEffect, blockLoad and blockFree exist
+    // on "device managed" sticks (3D Rumble Force), which allocate effect slots themselves.
     struct ReportIds {
         UCHAR setEffect, envelope, condition, periodic, constant, effectOperation, deviceControl, deviceGain,
-              vendor, pool, state;
+              vendor, pool, state, createEffect, blockLoad, blockFree;
     } ids = {};
+    bool DeviceManaged() const { return ids.createEffect && ids.blockLoad; }
+    bool HasUsage(HIDP_REPORT_TYPE type, UCHAR reportId, USAGE page, USAGE usage) const;
 
     PHIDP_PREPARSED_DATA Preparsed() const { return preparsed_; }
     const HIDP_CAPS& Caps() const { return caps_; }
@@ -91,6 +104,7 @@ public:
 
 private:
     UCHAR FindReportId(HIDP_REPORT_TYPE type, USAGE page, USAGE usage, UCHAR exclude = 0) const;
+    UCHAR FindReportInCollection(HIDP_REPORT_TYPE type, USAGE collectionUsage) const;
     static DWORD WINAPI ReaderThread(LPVOID self);
     void ReadLoop();
     void ParseState(const BYTE* report, ULONG length);

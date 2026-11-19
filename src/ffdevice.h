@@ -77,6 +77,11 @@ private:
 
     static bool IsCondition(DWORD type) { return type >= usage::Spring && type <= usage::Friction; }
     bool IsSupported(DWORD type) const;
+    USAGE DeviceType(const Effect& e) const;  // the effect type the stick plays (ramp as sawtooth, ...)
+    // Device managed sticks: asks the stick for an effect slot; returns its index, CreateFull or CreateError
+    static constexpr int CreateFull = -1, CreateError = -2;
+    int CreateDeviceEffect(USAGE type);
+    OutputReport& Block(OutputReport& r, const Effect& e, int block) const;
     int BlockSize(DWORD type, int block) const;
     HRESULT Merge(Effect& e, LPCDIEFFECT effect, DWORD flags);
     HRESULT Validate(const Effect& e) const;
@@ -103,6 +108,7 @@ private:
     std::vector<Effect*> slots_;
     ParamMemory memory_;
     int constantSize_ = 2, periodicSize_ = 12, conditionSize_ = 8, envelopeSize_ = 14;
+    int deviceSlots_ = 0;  // effects the stick can hold
     DWORD nextHandle_ = 1, useCounter_ = 0;
     Settings settings_;
 };
