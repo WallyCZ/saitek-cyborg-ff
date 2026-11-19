@@ -1,6 +1,7 @@
 # Builds the driver, the MSI installer and the zip (Install.ps1) on every push and pull request.
 # - push / pull request: the files are uploaded as a workflow artifact
-# - tag v1.2.3: a GitHub release v1.2.3 is published with the files
+# - tag v1.2.3: a GitHub release v1.2.3 is published with the files; a tag with a suffix (v1.2.3-beta.1)
+#   publishes a pre-release for testers
 # - manual run (Actions > Build > Run workflow): a draft release is created to test the release step;
 #   drafts are only visible to maintainers and create no tag until published, delete it afterwards
 name: Build
@@ -49,7 +50,11 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
-        run: gh release create '${{ github.ref_name }}' (Get-ChildItem dist/*).FullName --title '${{ github.ref_name }}' --generate-notes
+        # A tag with a suffix (v1.2.3-beta.1) is a pre-release for testers, not the latest release
+        run: |
+          $extra = @()
+          if ('${{ github.ref_name }}' -match '-') { $extra += '--prerelease' }
+          gh release create '${{ github.ref_name }}' (Get-ChildItem dist/*).FullName --title '${{ github.ref_name }}' --generate-notes @extra
 
       - name: Test draft release
         if: github.event_name == 'workflow_dispatch'
