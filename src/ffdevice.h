@@ -103,7 +103,7 @@ private:
     CRITICAL_SECTION lock_;
     HidDevice hid_;
     HANDLE watcher_ = nullptr, stopWatcher_ = nullptr;
-    HANDLE session_ = nullptr;  // marks a running force feedback session, see ApplyCentering
+    HANDLE session_ = nullptr;  // set from the first reset: a running force feedback session, see ApplyCentering
     std::map<DWORD, std::unique_ptr<Effect>> effects_;
     std::vector<Effect*> slots_;
     ParamMemory memory_;

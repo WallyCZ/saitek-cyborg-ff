@@ -126,7 +126,6 @@ HRESULT FFDevice::Open(const wchar_t* path)
     if (hid_.DeviceManaged())
         Log("device managed effect memory: up to %d effects", maxEffects);
     settings_ = Settings::Load();
-    session_ = CreateEventW(nullptr, TRUE, FALSE, SessionEventName);
     stopWatcher_ = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     watcher_ = CreateThread(nullptr, 0, SettingsWatcher, this, 0, nullptr);
     Log("device memory %d bytes (alignment %d), %d effect slots, blocks: constant %d periodic %d condition %d "
@@ -143,13 +142,13 @@ void FFDevice::Close()
         return;
     Control(usage::StopAllEffects);
     DestroyAll();
-    // Back to the centering spring the user chose for when no game drives the stick
-    hid_.SetCentering(Settings::Load().CenteringValue());
-    hid_.Close();
     if (session_) {
+        // Back to the centering spring the user chose for when no game drives the stick
+        hid_.SetCentering(Settings::Load().CenteringValue());
         CloseHandle(session_);
         session_ = nullptr;
     }
+    hid_.Close();
     Log("device closed");
 }
 
@@ -226,8 +225,12 @@ HRESULT FFDevice::SendCommand(DWORD command)
         DestroyAll();
         if (!Control(usage::DeviceReset))
             return DIERR_GENERIC;
-        // DirectInput applications drive centering with their own spring effects
+        // DirectInput applications drive centering with their own spring effects. A reset is where a game
+        // takes over the stick (exclusive acquire); background readers such as the GameInput service open
+        // the driver too, but never reset it, so they don't count as a session.
         hid_.SetCentering(0);
+        if (!session_)
+            session_ = CreateEventW(nullptr, TRUE, FALSE, SessionEventName);
         settings_ = Settings::Load();
         return DI_OK;
     case DISFFC_STOPALL:
