@@ -3,6 +3,7 @@
 //   fftest list       list game controllers, FF capability and supported effects
 //   fftest play [ms]  play a constant force on the first FF device (default 2000 ms)
 //   fftest suite      play every effect type with a label, for checking by hand
+//   fftest rumble     numbered strengths, gains and wave shapes on one axis (rumble sticks), noted by hand
 //   fftest directions measure where forces from each direction move the stick
 //   fftest state      print axes and buttons
 #define DIRECTINPUT_VERSION 0x0800
@@ -12,6 +13,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <psapi.h>
+#include <initializer_list>
 
 static LONG CALLBACK CrashHandler(PEXCEPTION_POINTERS ep)
 {
@@ -246,6 +248,98 @@ static int DirectionTest()
     return 0;
 }
 
+// Numbered effects for someone holding the stick to note what they feel: whether the strength changes with
+// magnitude and device gain, and which wave shapes and periods a rumble motor can play
+static int RumbleTest()
+{
+    LPDIRECTINPUTDEVICE8W dev;
+    HRESULT hr = g_di->CreateDevice(g_ffDevice, &dev, nullptr);
+    if (FAILED(hr)) { printf("CreateDevice failed 0x%08lX\n", hr); return 1; }
+    dev->SetDataFormat(&c_dfDIJoystick);
+    HWND wnd = CreateWindowExW(0, L"STATIC", L"fftest", WS_OVERLAPPED, 0, 0, 0, 0,
+                               nullptr, nullptr, GetModuleHandleW(nullptr), nullptr);
+    dev->SetCooperativeLevel(wnd, DISCL_EXCLUSIVE | DISCL_BACKGROUND);
+    if (FAILED(hr = dev->Acquire())) { printf("Acquire failed 0x%08lX\n", hr); return 1; }
+
+    printf("Hold the stick lightly. Each numbered step plays for 2 seconds, with a pause after it.\n"
+           "Note for each number whether you feel it, and how strong it is compared to the others.\n");
+    int step = 0;
+    auto deviceGain = [&](DWORD gain) {
+        DIPROPDWORD p = { { sizeof(DIPROPDWORD), sizeof(DIPROPHEADER), 0, DIPH_DEVICE }, gain };
+        dev->SetProperty(DIPROP_FFGAIN, &p.diph);
+    };
+    auto play = [&](const char* label, const GUID& type, void* params, DWORD size) {
+        DWORD axes[1] = { DIJOFS_X };
+        LONG dir[1] = { 1 };
+        DIEFFECT eff = { sizeof(eff) };
+        eff.dwFlags = DIEFF_CARTESIAN | DIEFF_OBJECTOFFSETS;
+        eff.dwDuration = 2000 * 1000;
+        eff.dwGain = DI_FFNOMINALMAX;
+        eff.dwTriggerButton = DIEB_NOTRIGGER;
+        eff.cAxes = 1;
+        eff.rgdwAxes = axes;
+        eff.rglDirection = dir;
+        eff.cbTypeSpecificParams = size;
+        eff.lpvTypeSpecificParams = params;
+        printf("%2d. %-42s", ++step, label);
+        LPDIRECTINPUTEFFECT effect;
+        HRESULT hr = dev->CreateEffect(type, &eff, &effect, nullptr);
+        if (FAILED(hr)) {
+            printf(" not created (0x%08lX)\n", hr);
+            return;
+        }
+        hr = effect->Start(1, 0);
+        printf(FAILED(hr) ? " not started (0x%08lX)\n" : "\n", hr);
+        Sleep(2200);
+        effect->Release();
+        Sleep(1500);
+    };
+    char label[64];
+
+    printf("\nConstant force, different strengths:\n");
+    for (LONG percent : { 10, 25, 50, 75, 100 }) {
+        DICONSTANTFORCE cf = { percent * 100 };
+        sprintf_s(label, "constant force %ld%%", percent);
+        play(label, GUID_ConstantForce, &cf, sizeof(cf));
+    }
+    printf("\nConstant force 100%%, different device gains (the in-game force feedback strength):\n");
+    for (DWORD percent : { 10, 50, 100 }) {
+        deviceGain(percent * 100);
+        DICONSTANTFORCE cf = { 10000 };
+        sprintf_s(label, "constant force 100%%, device gain %lu%%", percent);
+        play(label, GUID_ConstantForce, &cf, sizeof(cf));
+    }
+    deviceGain(10000);
+    printf("\nSine wave 100%%, different periods (vibration speed):\n");
+    for (DWORD ms : { 20, 50, 100, 250, 500 }) {
+        DIPERIODIC p = { 10000, 0, 0, ms * 1000 };
+        sprintf_s(label, "sine, period %lu ms", ms);
+        play(label, GUID_Sine, &p, sizeof(p));
+    }
+    printf("\nSquare wave 100%%, different periods:\n");
+    for (DWORD ms : { 20, 50, 100, 250, 500 }) {
+        DIPERIODIC p = { 10000, 0, 0, ms * 1000 };
+        sprintf_s(label, "square, period %lu ms", ms);
+        play(label, GUID_Square, &p, sizeof(p));
+    }
+    printf("\nSine wave, period 100 ms, different strengths:\n");
+    for (DWORD percent : { 25, 50, 100 }) {
+        DIPERIODIC p = { percent * 100, 0, 0, 100 * 1000 };
+        sprintf_s(label, "sine 100 ms, %lu%%", percent);
+        play(label, GUID_Sine, &p, sizeof(p));
+    }
+    printf("\nOther shapes, 100%%, period 100 ms:\n");
+    {
+        DIPERIODIC p = { 10000, 0, 0, 100 * 1000 };
+        play("triangle, period 100 ms", GUID_Triangle, &p, sizeof(p));
+        play("sawtooth up, period 100 ms", GUID_SawtoothUp, &p, sizeof(p));
+    }
+    dev->Unacquire();
+    dev->Release();
+    printf("\nDone.\n");
+    return 0;
+}
+
 int Diagnose();  // diag.cpp
 
 int main(int argc, char** argv)
@@ -281,6 +375,8 @@ int main(int argc, char** argv)
         }
         dev->Release();
     }
+    if (argc > 1 && !strcmp(argv[1], "rumble"))
+        rc = g_ffFound ? RumbleTest() : 1;
     if (argc > 1 && !strcmp(argv[1], "directions"))
         rc = g_ffFound ? DirectionTest() : 1;
     if (argc > 1 && !strcmp(argv[1], "suite"))

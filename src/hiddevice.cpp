@@ -210,6 +210,8 @@ bool HidDevice::Send(const OutputReport& report)
 {
     if (!report.Ok() || writeHandle_ == INVALID_HANDLE_VALUE)
         return false;
+    // Debug log of everything sent to the stick, for supporting sticks remotely
+    LogBytes(report.Type() == HidP_Feature ? "feature ->" : "report  ->", report.Bytes().data(), report.Bytes().size());
     if (report.Type() == HidP_Feature) {
         if (!HidD_SetFeature(writeHandle_, (PVOID)report.Bytes().data(), (ULONG)report.Bytes().size())) {
             Log("set feature %02X failed (%lu)", report.Bytes()[0], GetLastError());
@@ -231,10 +233,6 @@ bool HidDevice::SendVendor(USAGE command, USHORT value)
         return false;
     OutputReport r(*this, ids.vendor);
     r.Usage(usage::PageVendor, command).Value(usage::PageVendor, usage::VendorValue, value);
-    char text[64] = "";
-    for (BYTE b : r.Bytes())
-        sprintf_s(text + strlen(text), sizeof(text) - strlen(text), " %02X", b);
-    Log("vendor report%s", text);
     return Send(r);
 }
 

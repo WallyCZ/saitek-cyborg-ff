@@ -548,6 +548,7 @@ int FFDevice::CreateDeviceEffect(USAGE type)
         Log("block load report not readable (%lu)", GetLastError());
         return CreateError;
     }
+    LogBytes("feature <-", load.data(), load.size());
     USAGE status[8];
     ULONG count = ARRAYSIZE(status), index = 0;
     HidP_GetUsages(HidP_Feature, usage::PagePid, 0, status, &count, hid_.Preparsed(), (PCHAR)load.data(), (ULONG)load.size());

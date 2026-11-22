@@ -43,3 +43,16 @@ void Log(const char* format, ...)
     }
     LeaveCriticalSection(&g_lock);
 }
+
+bool LogEnabled() { return g_enabled; }
+
+void LogBytes(const char* prefix, const unsigned char* data, size_t size)
+{
+    if (!g_enabled)
+        return;
+    char text[3 * 64 + 1] = "";
+    size_t n = 0;
+    for (size_t i = 0; i < size && i < 64; i++)
+        n += sprintf_s(text + n, sizeof(text) - n, " %02X", data[i]);
+    Log("%s%s", prefix, text);
+}

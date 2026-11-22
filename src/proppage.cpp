@@ -20,9 +20,9 @@ public:
     Result Start(HWND window);
     void Stop();
     bool Active() const { return device_ != nullptr; }
+    static BOOL CALLBACK FindStick(LPCDIDEVICEINSTANCEW instance, LPVOID context);
 
 private:
-    static BOOL CALLBACK FindStick(LPCDIDEVICEINSTANCEW instance, LPVOID context);
     void Add(const GUID& type, LONG direction, DWORD durationMs, DWORD button, DWORD repeatMs, void* params,
              DWORD paramSize, DIENVELOPE* envelope = nullptr);
 
@@ -32,6 +32,29 @@ private:
 };
 
 TestEffects g_test;  // joy.cpl shows one property sheet at a time
+
+// Sticks with force motors (Evo Force) have springs, dampers and a centering spring; the 3D Rumble Force only
+// has a rumble motor. Registration lists spring effects only for sticks that can play them.
+bool g_forceMotors = true;
+
+bool StickHasForceMotors()
+{
+    IDirectInput8W* di;
+    if (FAILED(DirectInput8Create(GetModuleHandleW(nullptr), DIRECTINPUT_VERSION, IID_IDirectInput8W,
+                                  reinterpret_cast<void**>(&di), nullptr)))
+        return true;
+    bool force = true;  // no stick found: keep everything available
+    GUID stick = GUID_NULL;
+    IDirectInputDevice8W* dev;
+    if (SUCCEEDED(di->EnumDevices(DI8DEVCLASS_GAMECTRL, TestEffects::FindStick, &stick, DIEDFL_ATTACHEDONLY | DIEDFL_FORCEFEEDBACK)) &&
+        stick != GUID_NULL && SUCCEEDED(di->CreateDevice(stick, &dev, nullptr))) {
+        DIEFFECTINFOW info = { sizeof(info) };
+        force = SUCCEEDED(dev->GetEffectInfo(&info, GUID_Spring));
+        dev->Release();
+    }
+    di->Release();
+    return force;
+}
 
 BOOL CALLBACK TestEffects::FindStick(LPCDIDEVICEINSTANCEW instance, LPVOID context)
 {
@@ -74,10 +97,12 @@ TestEffects::Result TestEffects::Start(HWND window)
     Add(GUID_Sine, 9000, 1500, 2, INFINITE, &engine, sizeof(engine));                     // engine rumble
     Add(GUID_Square, 0, 1500, 3, INFINITE, &road, sizeof(road));                          // bumpy road
     // One condition per axis, so the Springs and Dampers sliders can be tried as well
-    DICONDITION spring[2] = { { 0, 8000, 8000, 10000, 10000, 0 }, { 0, 8000, 8000, 10000, 10000, 0 } };
-    DICONDITION damper[2] = { { 0, 10000, 10000, 10000, 10000, 0 }, { 0, 10000, 10000, 10000, 10000, 0 } };
-    Add(GUID_Spring, 0, 3000, 4, INFINITE, spring, sizeof(spring));                       // spring
-    Add(GUID_Damper, 0, 3000, 5, INFINITE, damper, sizeof(damper));                       // damper
+    if (g_forceMotors) {
+        DICONDITION spring[2] = { { 0, 8000, 8000, 10000, 10000, 0 }, { 0, 8000, 8000, 10000, 10000, 0 } };
+        DICONDITION damper[2] = { { 0, 10000, 10000, 10000, 10000, 0 }, { 0, 10000, 10000, 10000, 10000, 0 } };
+        Add(GUID_Spring, 0, 3000, 4, INFINITE, spring, sizeof(spring));                   // spring
+        Add(GUID_Damper, 0, 3000, 5, INFINITE, damper, sizeof(damper));                   // damper
+    }
     Log("test effects armed: %zu", effects_.size());
     if (effects_.empty()) {
         Stop();
@@ -147,9 +172,22 @@ void ShowValue(HWND page, const Slider& s)
 
 void UpdateCenteringControls(HWND page)
 {
-    BOOL on = IsDlgButtonChecked(page, IDC_CENTERING) == BST_CHECKED;
+    EnableWindow(GetDlgItem(page, IDC_CENTERING), g_forceMotors);
+    BOOL on = g_forceMotors && IsDlgButtonChecked(page, IDC_CENTERING) == BST_CHECKED;
     for (int id : { IDC_CENTERING_LABEL, IDC_CENTERING_STRENGTH, IDC_CENTERING_VALUE })
         EnableWindow(GetDlgItem(page, id), on);
+}
+
+// Grays out what a rumble stick cannot do and says so in the test text
+void ShowStickCapabilities(HWND page)
+{
+    for (int id : { IDC_SPRING_LABEL, IDC_SPRING, IDC_SPRING_VALUE, IDC_DAMPER_LABEL, IDC_DAMPER, IDC_DAMPER_VALUE })
+        EnableWindow(GetDlgItem(page, id), g_forceMotors);
+    if (!g_forceMotors)
+        SetDlgItemTextW(page, IDC_TEST_STATUS,
+                        L"Trigger: machine gun, 2: explosion, 3: engine rumble, 4: bumpy road. This stick has a rumble "
+                        L"motor, so springs, dampers and the centering spring are not available.");
+    UpdateCenteringControls(page);
 }
 
 void Show(HWND page, const Settings& s)
@@ -184,7 +222,9 @@ INT_PTR CALLBACK PageProc(HWND page, UINT message, WPARAM wParam, LPARAM lParam)
             SendDlgItemMessageW(page, slider.control, TBM_SETTICFREQ, 10, 0);
             SendDlgItemMessageW(page, slider.control, TBM_SETPAGESIZE, 0, 10);
         }
+        g_forceMotors = StickHasForceMotors();
         Show(page, Settings::Load());
+        ShowStickCapabilities(page);
         return TRUE;
     case WM_HSCROLL:
         for (const auto& slider : Sliders)
